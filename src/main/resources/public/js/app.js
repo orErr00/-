@@ -428,7 +428,7 @@ async function showMediaDetail(id) {
     ? `<img src="${escHtml(m.coverUrl)}" style="width:100%;display:block;" onerror="this.outerHTML='<div style=\\'font-size:60px;text-align:center;padding:20px;\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
     : `<div class="detail-cover-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
 
-  const tags = m.tags ? m.tags.split(',').filter(t => t.trim()) : [];
+  const tags = m.tags ? m.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
   const typeSpecific = (() => {
     if (m.type === 'movie' || m.type === 'tv') return m.director ? `<div class="detail-section"><div class="detail-section-label">导演</div><div class="detail-section-value">${escHtml(m.director)}</div></div>` : '';
     if (m.type === 'book') return m.author ? `<div class="detail-section"><div class="detail-section-label">作者</div><div class="detail-section-value">${escHtml(m.author)}</div></div>` : '';
@@ -828,7 +828,7 @@ function addTag(name) {
 }
 
 function removeTag(btn) {
-  const name = btn.dataset.tag;
+  const name = btn.dataset.tag.toLowerCase();
   step2Tags = step2Tags.filter(t => t !== name);
   renderTagBubbles();
 }
@@ -837,6 +837,8 @@ function setupTagInput() {
   const input = document.getElementById('tagInputField');
   const autocomplete = document.getElementById('tagAutocomplete');
   if (!input) return;
+
+  let autocompleteHideTimer = null;
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ',') {
@@ -857,7 +859,7 @@ function setupTagInput() {
       return;
     }
     const matches = allTags
-      .filter(t => t.name.toLowerCase().includes(val.toLowerCase()) && !step2Tags.includes(t.name))
+      .filter(t => t.name.toLowerCase().includes(val.toLowerCase()) && !step2Tags.includes(t.name.toLowerCase()))
       .slice(0, 8);
     if (matches.length === 0) { autocomplete.style.display = 'none'; return; }
     autocomplete.innerHTML = matches.map(t =>
@@ -866,8 +868,12 @@ function setupTagInput() {
     autocomplete.style.display = '';
   });
 
+  input.addEventListener('focus', () => {
+    if (autocompleteHideTimer) { clearTimeout(autocompleteHideTimer); autocompleteHideTimer = null; }
+  });
+
   input.addEventListener('blur', () => {
-    setTimeout(() => { if (autocomplete) autocomplete.style.display = 'none'; }, AUTOCOMPLETE_HIDE_DELAY);
+    autocompleteHideTimer = setTimeout(() => { if (autocomplete) autocomplete.style.display = 'none'; }, AUTOCOMPLETE_HIDE_DELAY);
   });
 }
 
@@ -911,10 +917,11 @@ async function submitStep2() {
 
   if (scorePlot || scorePres || scoreTotal) {
     const scores = {};
-    if (scorePlot)  scores.plot = parseFloat(scorePlot);
-    if (scorePres)  scores.presentation = parseFloat(scorePres);
-    if (scoreTotal) scores.overall = parseFloat(scoreTotal);
-    review = `SCORES:${JSON.stringify(scores)}\n${review}`;
+    const clampScore = v => { const n = parseFloat(v); return (!isNaN(n) && n >= 0 && n <= 10) ? n : undefined; };
+    const plot = clampScore(scorePlot); if (plot !== undefined) scores.plot = plot;
+    const pres = clampScore(scorePres); if (pres !== undefined) scores.presentation = pres;
+    const total = clampScore(scoreTotal); if (total !== undefined) scores.overall = total;
+    if (Object.keys(scores).length) review = `SCORES:${JSON.stringify(scores)}\n${review}`;
   }
 
   const data = {
