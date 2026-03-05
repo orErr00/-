@@ -1,5 +1,5 @@
 /* ===================================================
-   MediaVault - Single Page Application
+   MediaVault - Single Page Application (中文界面)
    =================================================== */
 
 const API = '/api';
@@ -7,11 +7,108 @@ let currentRoute = '/';
 let allMedia = [];
 let allTags = [];
 let activeTagFilter = null;
+let pendingTagFilter = null;
 let searchDebounceTimer = null;
 let currentRating = 0;
 let editingMediaId = null;
 let dragSrcEl = null;
 let dragListId = null;
+let draftMedia = null;
+let step2Tags = [];
+const AUTOCOMPLETE_HIDE_DELAY = 150; // ms to wait before hiding dropdown (allows click events to fire)
+let step2ActiveStyle = 'simple';
+let step2PreviewActive = false;
+
+// ===== Helpers =====
+function typeLabel(type) {
+  const map = { movie: '电影', tv: '电视剧', book: '书籍', game: '游戏' };
+  return map[type] || type;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function emptyState(icon, title, text) {
+  return `<div class="empty-state">
+    <div class="empty-state-icon">${icon}</div>
+    <div class="empty-state-title">${title}</div>
+    <div class="empty-state-text">${text}</div>
+  </div>`;
+}
+
+// ===== Markdown Renderer =====
+function renderMarkdown(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const result = [];
+  let inUl = false;
+  let inOl = false;
+
+  for (const line of lines) {
+    const isLi  = line.match(/^[-*] (.+)/);
+    const isOli = line.match(/^\d+\. (.+)/);
+
+    if (!isLi  && inUl) { result.push('</ul>'); inUl = false; }
+    if (!isOli && inOl) { result.push('</ol>'); inOl = false; }
+
+    const m3 = line.match(/^### (.+)/);
+    const m2 = line.match(/^## (.+)/);
+    const m1 = line.match(/^# (.+)/);
+    const mq = line.match(/^> (.+)/);
+    const mhr = line.match(/^---+$/);
+
+    if (m3)      result.push(`<h3>${inlineMd(m3[1])}</h3>`);
+    else if (m2) result.push(`<h2>${inlineMd(m2[1])}</h2>`);
+    else if (m1) result.push(`<h1>${inlineMd(m1[1])}</h1>`);
+    else if (mq) result.push(`<blockquote>${inlineMd(mq[1])}</blockquote>`);
+    else if (isLi) {
+      if (!inUl) { result.push('<ul>'); inUl = true; }
+      result.push(`<li>${inlineMd(isLi[1])}</li>`);
+    } else if (isOli) {
+      if (!inOl) { result.push('<ol>'); inOl = true; }
+      result.push(`<li>${inlineMd(isOli[1])}</li>`);
+    } else if (mhr) {
+      result.push('<hr>');
+    } else if (line.trim() === '') {
+      result.push('<p></p>');
+    } else {
+      result.push(`<p>${inlineMd(line)}</p>`);
+    }
+  }
+
+  if (inUl) result.push('</ul>');
+  if (inOl) result.push('</ol>');
+  return result.join('');
+}
+
+function inlineMd(text) {
+  text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%">');
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return text;
+}
+
+function parseScores(review) {
+  if (!review) return { review: '', scores: {} };
+  const match = review.match(/^SCORES:(\{[^}]*\})\n?/);
+  if (match) {
+    try {
+      const scores = JSON.parse(match[1]);
+      return { review: review.slice(match[0].length), scores };
+    } catch (_) { /* ignore */ }
+  }
+  return { review, scores: {} };
+}
 
 // ===== Theme =====
 const savedTheme = localStorage.getItem('theme') || 'light';
@@ -95,7 +192,7 @@ function toast(message, type = 'info') {
 // ===== API Helpers =====
 async function apiGet(path) {
   const res = await fetch(API + path);
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  if (!res.ok) throw new Error(`请求失败：${res.status}`);
   return res.json();
 }
 
@@ -106,7 +203,7 @@ async function apiPost(path, data) {
     body: JSON.stringify(data)
   });
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error(json.error || `请求失败：${res.status}`);
   return json;
 }
 
@@ -117,7 +214,7 @@ async function apiPut(path, data) {
     body: JSON.stringify(data)
   });
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error(json.error || `请求失败：${res.status}`);
   return json;
 }
 
@@ -125,7 +222,7 @@ async function apiDelete(path) {
   const res = await fetch(API + path, { method: 'DELETE' });
   if (res.status === 204) return null;
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `Request failed: ${res.status}`);
+  if (!res.ok) throw new Error(json.error || `请求失败：${res.status}`);
   return json;
 }
 
@@ -143,7 +240,8 @@ window.addEventListener('hashchange', render);
 async function render() {
   const route = getRoute();
   currentRoute = route;
-  activeTagFilter = null;
+  activeTagFilter = pendingTagFilter;
+  pendingTagFilter = null;
 
   document.querySelectorAll('.nav-link').forEach(a => {
     const r = a.getAttribute('data-route');
@@ -153,19 +251,19 @@ async function render() {
   sidebar.classList.remove('open');
 
   const app = document.getElementById('app');
-  app.innerHTML = `<div class="loading"><div class="spinner"></div> Loading…</div>`;
+  app.innerHTML = `<div class="loading"><div class="spinner"></div> 加载中…</div>`;
 
   try {
     if (route === '/') {
       await renderDashboard();
     } else if (route === '/movies') {
-      await renderMediaList('movie', '🎥 Movies');
+      await renderMediaList('movie', '🎥 电影');
     } else if (route === '/tv') {
-      await renderMediaList('tv', '📺 TV Shows');
+      await renderMediaList('tv', '📺 电视剧');
     } else if (route === '/books') {
-      await renderMediaList('book', '📚 Books');
+      await renderMediaList('book', '📚 书籍');
     } else if (route === '/games') {
-      await renderMediaList('game', '🎮 Games');
+      await renderMediaList('game', '🎮 游戏');
     } else if (route === '/lists') {
       await renderLists();
     } else if (route.startsWith('/lists/')) {
@@ -174,10 +272,10 @@ async function render() {
     } else if (route === '/tags') {
       await renderTags();
     } else {
-      app.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">Page not found</div><a href="#/" class="btn btn-primary mt-2">Go Home</a></div>`;
+      app.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">页面未找到</div><a href="#/" class="btn btn-primary mt-2">返回主页</a></div>`;
     }
   } catch (e) {
-    app.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">Error</div><div class="empty-state-text">${e.message}</div></div>`;
+    app.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-title">出错了</div><div class="empty-state-text">${e.message}</div></div>`;
   }
 }
 
@@ -197,29 +295,29 @@ async function renderDashboard() {
 
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">🏠 Dashboard</h1>
-      <button class="btn btn-primary" onclick="openAddMediaModal()">
-        ➕ Add Media
+      <h1 class="page-title">🏠 主页</h1>
+      <button class="btn btn-primary" onclick="openAddMediaStep1()">
+        ➕ 添加媒体
       </button>
     </div>
     <div class="stats-grid">
-      ${statCard('🎥', counts.movie, 'Movies', '#/movies')}
-      ${statCard('📺', counts.tv, 'TV Shows', '#/tv')}
-      ${statCard('📚', counts.book, 'Books', '#/books')}
-      ${statCard('🎮', counts.game, 'Games', '#/games')}
-      ${statCard('📋', lists.length, 'Lists', '#/lists')}
-      ${statCard('🏷️', tags.length, 'Tags', '#/tags')}
+      ${statCard('🎥', counts.movie, '电影', '#/movies')}
+      ${statCard('📺', counts.tv, '电视剧', '#/tv')}
+      ${statCard('📚', counts.book, '书籍', '#/books')}
+      ${statCard('🎮', counts.game, '游戏', '#/games')}
+      ${statCard('📋', lists.length, '片单', '#/lists')}
+      ${statCard('🏷️', tags.length, '标签', '#/tags')}
     </div>
     ${recent.length ? `
-    <h2 class="section-title">Recently Added</h2>
+    <h2 class="section-title">最近添加</h2>
     <div class="media-grid">
       ${recent.map(m => mediaCard(m)).join('')}
     </div>
     ` : `<div class="empty-state">
       <div class="empty-state-icon">📽️</div>
-      <div class="empty-state-title">Your library is empty</div>
-      <div class="empty-state-text">Start by adding your first movie, book, game, or TV show.</div>
-      <button class="btn btn-primary" onclick="openAddMediaModal()">➕ Add Your First Item</button>
+      <div class="empty-state-title">您的媒体库为空</div>
+      <div class="empty-state-text">开始添加您的第一部电影、书籍、游戏或电视剧。</div>
+      <button class="btn btn-primary" onclick="openAddMediaStep1()">➕ 添加第一条记录</button>
     </div>`}
   `;
 }
@@ -234,7 +332,10 @@ function statCard(icon, number, label, href) {
 
 // ===== Media List =====
 async function renderMediaList(type, title) {
-  const media = await apiGet(`/media?type=${type}`);
+  const typeNameMap = { movie: '电影', tv: '电视剧', book: '书籍', game: '游戏' };
+  let url = `/media?type=${type}`;
+  if (activeTagFilter) url += `&tag=${encodeURIComponent(activeTagFilter)}`;
+  const media = await apiGet(url);
   allMedia = media;
   const tags = await apiGet('/tags');
   allTags = tags;
@@ -242,20 +343,20 @@ async function renderMediaList(type, title) {
   document.getElementById('app').innerHTML = `
     <div class="page-header">
       <h1 class="page-title">${title}</h1>
-      <button class="btn btn-primary" onclick="openAddMediaModal('${type}')">➕ Add ${type.charAt(0).toUpperCase()+type.slice(1)}</button>
+      <button class="btn btn-primary" onclick="openAddMediaStep1('${type}')">➕ 添加${typeNameMap[type] || type}</button>
     </div>
     <div class="filters-bar">
       <div class="search-box">
         <span>🔍</span>
-        <input type="text" id="searchInput" placeholder="Search ${title.toLowerCase()}…" />
+        <input type="text" id="searchInput" placeholder="搜索${title.replace(/[🎥📺📚🎮]\s/, '')}…" />
       </div>
       <div class="tag-filter" id="tagFilter">
-        <span class="tag-chip active" onclick="filterByTag(null, this)">All</span>
-        ${tags.map(t => `<span class="tag-chip" onclick="filterByTag('${escHtml(t.name)}', this)">${escHtml(t.name)}</span>`).join('')}
+        <span class="tag-chip ${!activeTagFilter ? 'active' : ''}" onclick="filterByTag(null, this)">全部</span>
+        ${tags.map(t => `<span class="tag-chip ${activeTagFilter === t.name ? 'active' : ''}" onclick="filterByTag('${escHtml(t.name)}', this)">${escHtml(t.name)}</span>`).join('')}
       </div>
     </div>
     <div class="media-grid" id="mediaGrid">
-      ${media.length ? media.map(m => mediaCard(m)).join('') : emptyState('📭', 'No items yet', `Add your first ${type}!`)}
+      ${media.length ? media.map(m => mediaCard(m)).join('') : emptyState('📭', '暂无内容', `添加您的第一条${typeNameMap[type]}！`)}
     </div>
   `;
 
@@ -280,7 +381,13 @@ async function filterMedia(type, search) {
   if (activeTagFilter) url += `&tag=${encodeURIComponent(activeTagFilter)}`;
   const media = await apiGet(url);
   const grid = document.getElementById('mediaGrid');
-  if (grid) grid.innerHTML = media.length ? media.map(m => mediaCard(m)).join('') : emptyState('🔍', 'No results', 'Try a different search or filter');
+  if (grid) grid.innerHTML = media.length ? media.map(m => mediaCard(m)).join('') : emptyState('🔍', '无搜索结果', '请尝试不同的搜索或筛选条件');
+}
+
+// Sets a tag name to be applied as a filter on the next render triggered by navigation.
+// Called from the Tags page alongside navigate() so the pending filter is picked up by render().
+function filterByTagGlobal(tagName) {
+  pendingTagFilter = tagName;
 }
 
 // ===== Media Card =====
@@ -295,7 +402,7 @@ function mediaCard(m) {
     <div class="card-info">
       <div class="card-title">${escHtml(m.title)}</div>
       <div class="card-meta">
-        <span class="badge badge-${m.type}">${m.type}</span>
+        <span class="badge badge-${m.type}">${typeLabel(m.type)}</span>
         ${m.year ? `<span>${m.year}</span>` : ''}
       </div>
       ${m.rating ? `<div class="stars">${renderStars(m.rating)}</div>` : ''}
@@ -321,13 +428,15 @@ async function showMediaDetail(id) {
     ? `<img src="${escHtml(m.coverUrl)}" style="width:100%;display:block;" onerror="this.outerHTML='<div style=\\'font-size:60px;text-align:center;padding:20px;\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
     : `<div class="detail-cover-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
 
-  const tags = m.tags ? m.tags.split(',').filter(t=>t.trim()) : [];
+  const tags = m.tags ? m.tags.split(',').filter(t => t.trim()) : [];
   const typeSpecific = (() => {
-    if (m.type === 'movie' || m.type === 'tv') return m.director ? `<div class="detail-section"><div class="detail-section-label">Director</div><div class="detail-section-value">${escHtml(m.director)}</div></div>` : '';
-    if (m.type === 'book') return m.author ? `<div class="detail-section"><div class="detail-section-label">Author</div><div class="detail-section-value">${escHtml(m.author)}</div></div>` : '';
-    if (m.type === 'game') return m.platform ? `<div class="detail-section"><div class="detail-section-label">Platform</div><div class="detail-section-value">${escHtml(m.platform)}</div></div>` : '';
+    if (m.type === 'movie' || m.type === 'tv') return m.director ? `<div class="detail-section"><div class="detail-section-label">导演</div><div class="detail-section-value">${escHtml(m.director)}</div></div>` : '';
+    if (m.type === 'book') return m.author ? `<div class="detail-section"><div class="detail-section-label">作者</div><div class="detail-section-value">${escHtml(m.author)}</div></div>` : '';
+    if (m.type === 'game') return m.platform ? `<div class="detail-section"><div class="detail-section-label">平台</div><div class="detail-section-value">${escHtml(m.platform)}</div></div>` : '';
     return '';
   })();
+
+  const { review: cleanedReview } = parseScores(m.review);
 
   openModal(`
     <div class="detail-header">
@@ -335,122 +444,113 @@ async function showMediaDetail(id) {
       <div class="detail-info">
         <div class="detail-title">${escHtml(m.title)}</div>
         <div class="detail-meta">
-          <span class="badge badge-${m.type}">${m.type.toUpperCase()}</span>
+          <span class="badge badge-${m.type}">${typeLabel(m.type)}</span>
           ${m.year ? `<span class="detail-year">${m.year}</span>` : ''}
         </div>
         ${m.rating ? `<div class="detail-rating"><div class="stars">${renderStars(m.rating)}</div><span style="color:var(--text-secondary);font-size:13px">${m.rating.toFixed(1)}/5</span></div>` : ''}
-        ${m.genre ? `<div class="detail-section"><div class="detail-section-label">Genre</div><div class="detail-section-value">${escHtml(m.genre)}</div></div>` : ''}
+        ${m.genre ? `<div class="detail-section"><div class="detail-section-label">类型</div><div class="detail-section-value">${escHtml(m.genre)}</div></div>` : ''}
         ${typeSpecific}
       </div>
     </div>
-    ${m.description ? `<div class="detail-section"><div class="detail-section-label">Description</div><div class="detail-section-value">${escHtml(m.description)}</div></div>` : ''}
-    ${m.review ? `<div class="detail-section"><div class="detail-section-label">My Review</div><div class="detail-section-value">${escHtml(m.review)}</div></div>` : ''}
-    ${tags.length ? `<div class="detail-section"><div class="detail-section-label">Tags</div><div class="detail-tags">${tags.map(t => `<span class="tag-chip">${escHtml(t.trim())}</span>`).join('')}</div></div>` : ''}
+    ${m.description ? `<div class="detail-section"><div class="detail-section-label">简介</div><div class="detail-section-value">${escHtml(m.description)}</div></div>` : ''}
+    ${cleanedReview ? `<div class="detail-section"><div class="detail-section-label">我的点评</div><div class="detail-section-value">${escHtml(cleanedReview)}</div></div>` : ''}
+    ${tags.length ? `<div class="detail-section"><div class="detail-section-label">标签</div><div class="detail-tags">${tags.map(t => `<span class="tag-chip">${escHtml(t.trim())}</span>`).join('')}</div></div>` : ''}
     <div class="detail-actions">
-      <button class="btn btn-secondary" onclick="openEditMediaModal(${m.id})">✏️ Edit</button>
-      <button class="btn btn-danger" data-id="${m.id}" data-title="${escHtml(m.title)}" onclick="deleteMediaFromBtn(this)">🗑️ Delete</button>
+      <button class="btn btn-secondary" onclick="openEditStep1(${m.id})">✏️ 编辑</button>
+      <button class="btn btn-danger" data-id="${m.id}" data-title="${escHtml(m.title)}" onclick="deleteMediaFromBtn(this)">🗑️ 删除</button>
     </div>
   `);
 }
 
-// ===== Add / Edit Media Modal =====
-function openAddMediaModal(defaultType) {
-  editingMediaId = null;
-  currentRating = 0;
-  openModal(buildMediaForm(null, defaultType));
-  setupFormHandlers();
+async function openEditStep1(id) {
+  try {
+    const m = await apiGet(`/media/${id}`);
+    closeModal();
+    openAddMediaStep1(null, m);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
-async function openEditMediaModal(id) {
-  const m = await apiGet(`/media/${id}`);
-  editingMediaId = id;
-  currentRating = m.rating || 0;
-  openModal(buildMediaForm(m));
-  setupFormHandlers();
+// ===== Step 1 Modal =====
+function openAddMediaStep1(defaultType, existingMedia) {
+  editingMediaId = existingMedia?.id || null;
+  draftMedia = existingMedia ? { ...existingMedia } : null;
+  currentRating = existingMedia?.rating || 0;
+  openModal(buildStep1Form(existingMedia, defaultType));
+  setupStep1Handlers();
 }
 
-function buildMediaForm(m, defaultType) {
+function buildStep1Form(m, defaultType) {
   const type = m?.type || defaultType || 'movie';
-  const typeOptions = ['movie','tv','book','game'].map(t =>
-    `<option value="${t}" ${type===t?'selected':''}>${t.charAt(0).toUpperCase()+t.slice(1)}</option>`
-  ).join('');
+  const typeOptions = [
+    { val: 'movie', label: '电影' },
+    { val: 'tv',    label: '电视剧' },
+    { val: 'book',  label: '书籍' },
+    { val: 'game',  label: '游戏' }
+  ].map(t => `<option value="${t.val}" ${type === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
 
   return `
-    <h2 style="margin-bottom:20px;font-size:20px;font-weight:700;">
-      ${m ? '✏️ Edit Media' : '➕ Add Media'}
+    <h2 style="margin-bottom:4px;font-size:20px;font-weight:700;">
+      ${m ? '✏️ 编辑媒体' : '➕ 添加媒体'}
     </h2>
+    <div class="step-indicator" style="margin-bottom:16px;">步骤 1 / 2 — 基本信息</div>
     <div class="fetch-area">
       <div class="form-group">
-        <label class="form-label">Auto-Fetch by Title</label>
-        <input type="text" class="form-input" id="fetchTitle" placeholder="Enter title to fetch info…" value="${escHtml(m?.title||'')}">
+        <label class="form-label">按标题自动抓取</label>
+        <input type="text" class="form-input" id="fetchTitle" placeholder="输入标题以自动抓取信息…" value="${escHtml(m?.title || '')}">
       </div>
-      <button class="btn btn-secondary" onclick="autoFetch()" id="fetchBtn">🔍 Fetch</button>
+      <button class="btn btn-secondary" onclick="autoFetch()" id="fetchBtn">🔍 抓取</button>
     </div>
     <div class="fetching-indicator" id="fetchingIndicator">
-      <div class="spinner"></div> Fetching…
+      <div class="spinner"></div> 抓取中…
     </div>
-    <form id="mediaForm" onsubmit="submitMediaForm(event)">
-      <div class="form-grid">
-        <div class="form-group" style="grid-column:span 2">
-          <label class="form-label">Title *</label>
-          <input type="text" class="form-input" id="fTitle" value="${escHtml(m?.title||'')}" required placeholder="Enter title">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Type *</label>
-          <select class="form-select" id="fType" onchange="updateTypeFields(this.value)">${typeOptions}</select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Year</label>
-          <input type="number" class="form-input" id="fYear" value="${m?.year||''}" min="1800" max="2100" placeholder="e.g. 2024">
-        </div>
-        <div class="form-group" style="grid-column:span 2">
-          <label class="form-label">Cover Image URL</label>
-          <input type="url" class="form-input" id="fCoverUrl" value="${escHtml(m?.coverUrl||'')}" placeholder="https://…">
-        </div>
-        <div class="form-group" id="directorGroup" style="${(type==='movie'||type==='tv')?'':'display:none;'}">
-          <label class="form-label">Director</label>
-          <input type="text" class="form-input" id="fDirector" value="${escHtml(m?.director||'')}" placeholder="Director name">
-        </div>
-        <div class="form-group" id="authorGroup" style="${type==='book'?'':'display:none;'}">
-          <label class="form-label">Author</label>
-          <input type="text" class="form-input" id="fAuthor" value="${escHtml(m?.author||'')}" placeholder="Author name">
-        </div>
-        <div class="form-group" id="platformGroup" style="${type==='game'?'':'display:none;'}">
-          <label class="form-label">Platform</label>
-          <input type="text" class="form-input" id="fPlatform" value="${escHtml(m?.platform||'')}" placeholder="PC, PlayStation, Xbox…">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Genre</label>
-          <input type="text" class="form-input" id="fGenre" value="${escHtml(m?.genre||'')}" placeholder="Action, Drama, RPG…">
-        </div>
-        <div class="form-group" style="grid-column:span 2">
-          <label class="form-label">My Rating</label>
-          <div class="star-picker" id="starPicker">
-            ${[1,2,3,4,5].map(i => `<button type="button" class="star ${(m?.rating||0)>=i?'filled':''}" data-val="${i}" onclick="setRating(${i})">★</button>`).join('')}
-          </div>
-        </div>
-        <div class="form-group" style="grid-column:span 2">
-          <label class="form-label">Description</label>
-          <textarea class="form-textarea" id="fDescription" placeholder="Synopsis or description…">${escHtml(m?.description||'')}</textarea>
-        </div>
-        <div class="form-group" style="grid-column:span 2">
-          <label class="form-label">My Review</label>
-          <textarea class="form-textarea" id="fReview" placeholder="Write your review…">${escHtml(m?.review||'')}</textarea>
-        </div>
-        <div class="form-group" style="grid-column:span 2">
-          <label class="form-label">Tags (comma separated)</label>
-          <input type="text" class="form-input" id="fTags" value="${escHtml(m?.tags||'')}" placeholder="action, sci-fi, classic…">
-        </div>
+    <div class="form-grid">
+      <div class="form-group" style="grid-column:span 2">
+        <label class="form-label">标题 *</label>
+        <input type="text" class="form-input" id="fTitle" value="${escHtml(m?.title || '')}" required placeholder="输入标题">
       </div>
-      <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary">💾 ${m ? 'Save Changes' : 'Add Media'}</button>
+      <div class="form-group">
+        <label class="form-label">类型 *</label>
+        <select class="form-select" id="fType" onchange="updateTypeFields(this.value)">${typeOptions}</select>
       </div>
-    </form>
+      <div class="form-group">
+        <label class="form-label">年份</label>
+        <input type="number" class="form-input" id="fYear" value="${m?.year || ''}" min="1800" max="2100" placeholder="例：2024">
+      </div>
+      <div class="form-group" style="grid-column:span 2">
+        <label class="form-label">封面图片URL</label>
+        <input type="url" class="form-input" id="fCoverUrl" value="${escHtml(m?.coverUrl || '')}" placeholder="https://…">
+      </div>
+      <div class="form-group" id="directorGroup" style="${(type === 'movie' || type === 'tv') ? '' : 'display:none;'}">
+        <label class="form-label">导演</label>
+        <input type="text" class="form-input" id="fDirector" value="${escHtml(m?.director || '')}" placeholder="导演姓名">
+      </div>
+      <div class="form-group" id="authorGroup" style="${type === 'book' ? '' : 'display:none;'}">
+        <label class="form-label">作者</label>
+        <input type="text" class="form-input" id="fAuthor" value="${escHtml(m?.author || '')}" placeholder="作者姓名">
+      </div>
+      <div class="form-group" id="platformGroup" style="${type === 'game' ? '' : 'display:none;'}">
+        <label class="form-label">平台</label>
+        <input type="text" class="form-input" id="fPlatform" value="${escHtml(m?.platform || '')}" placeholder="PC、PlayStation、Xbox…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">类型/题材</label>
+        <input type="text" class="form-input" id="fGenre" value="${escHtml(m?.genre || '')}" placeholder="动作、戏剧、RPG…">
+      </div>
+      <div class="form-group" style="grid-column:span 2">
+        <label class="form-label">简介</label>
+        <textarea class="form-textarea" id="fDescription" placeholder="内容简介…">${escHtml(m?.description || '')}</textarea>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button type="button" class="btn btn-primary" onclick="goToStep2()">下一步：写点评 →</button>
+    </div>
   `;
 }
 
-function setupFormHandlers() {
+function setupStep1Handlers() {
   const type = document.getElementById('fType')?.value;
   if (type) updateTypeFields(type);
 }
@@ -459,22 +559,37 @@ function updateTypeFields(type) {
   const dg = document.getElementById('directorGroup');
   const ag = document.getElementById('authorGroup');
   const pg = document.getElementById('platformGroup');
-  if (dg) dg.style.display = (type==='movie'||type==='tv') ? '' : 'none';
-  if (ag) ag.style.display = type==='book' ? '' : 'none';
-  if (pg) pg.style.display = type==='game' ? '' : 'none';
+  if (dg) dg.style.display = (type === 'movie' || type === 'tv') ? '' : 'none';
+  if (ag) ag.style.display = type === 'book' ? '' : 'none';
+  if (pg) pg.style.display = type === 'game' ? '' : 'none';
 }
 
-function setRating(val) {
-  currentRating = val;
-  document.querySelectorAll('#starPicker .star').forEach(s => {
-    s.classList.toggle('filled', parseInt(s.dataset.val) <= val);
-  });
+function goToStep2() {
+  const title = document.getElementById('fTitle')?.value?.trim();
+  if (!title) { toast('请输入标题', 'warning'); return; }
+
+  draftMedia = {
+    ...draftMedia,
+    title,
+    type:        document.getElementById('fType').value,
+    year:        parseInt(document.getElementById('fYear').value) || null,
+    coverUrl:    document.getElementById('fCoverUrl').value || null,
+    director:    document.getElementById('fDirector')?.value || null,
+    author:      document.getElementById('fAuthor')?.value || null,
+    platform:    document.getElementById('fPlatform')?.value || null,
+    genre:       document.getElementById('fGenre').value || null,
+    description: document.getElementById('fDescription').value || null
+  };
+
+  closeModal();
+  renderStep2Editor();
 }
 
+// ===== Auto-Fetch =====
 async function autoFetch() {
   const title = document.getElementById('fetchTitle')?.value;
   const type = document.getElementById('fType')?.value || 'movie';
-  if (!title?.trim()) { toast('Enter a title to fetch', 'warning'); return; }
+  if (!title?.trim()) { toast('请输入标题', 'warning'); return; }
 
   const indicator = document.getElementById('fetchingIndicator');
   const btn = document.getElementById('fetchBtn');
@@ -483,61 +598,30 @@ async function autoFetch() {
 
   try {
     const m = await apiPost('/fetch', { title: title.trim(), type });
-    if (m.title) document.getElementById('fTitle').value = m.title;
-    if (m.coverUrl) document.getElementById('fCoverUrl').value = m.coverUrl;
+    if (m.title)       document.getElementById('fTitle').value = m.title;
+    if (m.coverUrl)    document.getElementById('fCoverUrl').value = m.coverUrl;
     if (m.description) document.getElementById('fDescription').value = m.description;
-    if (m.year) document.getElementById('fYear').value = m.year;
-    if (m.genre) document.getElementById('fGenre').value = m.genre;
-    if (m.director) document.getElementById('fDirector').value = m.director;
-    if (m.author) document.getElementById('fAuthor').value = m.author;
-    if (m.platform) document.getElementById('fPlatform').value = m.platform;
-    if (m.rating) setRating(Math.round(m.rating));
-    toast('Info fetched successfully!', 'success');
+    if (m.year)        document.getElementById('fYear').value = m.year;
+    if (m.genre)       document.getElementById('fGenre').value = m.genre;
+    if (m.director)    document.getElementById('fDirector').value = m.director;
+    if (m.author)      document.getElementById('fAuthor').value = m.author;
+    if (m.platform)    document.getElementById('fPlatform').value = m.platform;
+    if (m.rating)      currentRating = Math.round(m.rating);
+    toast('信息抓取成功！', 'success');
   } catch (e) {
-    toast('Could not fetch info. Fill manually.', 'warning');
+    toast('无法抓取信息，请手动填写。', 'warning');
   } finally {
     if (indicator) indicator.classList.remove('active');
     if (btn) btn.disabled = false;
   }
 }
 
-async function submitMediaForm(e) {
-  e.preventDefault();
-  const data = {
-    title: document.getElementById('fTitle').value,
-    type: document.getElementById('fType').value,
-    coverUrl: document.getElementById('fCoverUrl').value || null,
-    year: parseInt(document.getElementById('fYear').value) || null,
-    description: document.getElementById('fDescription').value || null,
-    review: document.getElementById('fReview').value || null,
-    director: document.getElementById('fDirector').value || null,
-    author: document.getElementById('fAuthor').value || null,
-    platform: document.getElementById('fPlatform').value || null,
-    genre: document.getElementById('fGenre').value || null,
-    tags: document.getElementById('fTags').value || null,
-    rating: currentRating > 0 ? currentRating : null
-  };
-
-  try {
-    if (editingMediaId) {
-      await apiPut(`/media/${editingMediaId}`, data);
-      toast('Media updated!', 'success');
-    } else {
-      await apiPost('/media', data);
-      toast('Media added!', 'success');
-    }
-    closeModal();
-    render();
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-}
-
+// ===== Delete Media =====
 async function deleteMedia(id, title) {
-  if (!confirm(`Delete "${title}"?`)) return;
+  if (!confirm(`确定要删除「${title}」吗？`)) return;
   try {
     await apiDelete(`/media/${id}`);
-    toast('Media deleted', 'success');
+    toast('已删除', 'success');
     closeModal();
     render();
   } catch (e) {
@@ -549,16 +633,334 @@ function deleteMediaFromBtn(btn) {
   deleteMedia(btn.dataset.id, btn.dataset.title);
 }
 
+// ===== Step 2 Editor =====
+function renderStep2Editor() {
+  const { review: existingReview, scores } = parseScores(draftMedia?.review || '');
+  step2Tags = draftMedia?.tags ? draftMedia.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+  step2ActiveStyle = 'simple';
+  step2PreviewActive = false;
+  currentRating = draftMedia?.rating || currentRating || 0;
+
+  document.getElementById('app').innerHTML = `
+    <div class="editor-page">
+      <div class="page-header">
+        <div>
+          <div class="step-indicator">步骤 2 / 2 — 写点评</div>
+          <h1 class="page-title">✍️ ${escHtml(draftMedia?.title || '')}</h1>
+        </div>
+        <button class="btn btn-primary" onclick="submitStep2()">✅ 提交条目</button>
+      </div>
+
+      <div class="editor-layout">
+        <div class="editor-pane">
+          <div class="editor-toolbar">
+            <button class="toolbar-btn" onclick="insertMd('**','**')" title="粗体"><strong>B</strong></button>
+            <button class="toolbar-btn" onclick="insertMd('*','*')" title="斜体"><em>I</em></button>
+            <button class="toolbar-btn" onclick="insertMdLine('# ')" title="一级标题">H1</button>
+            <button class="toolbar-btn" onclick="insertMdLine('## ')" title="二级标题">H2</button>
+            <button class="toolbar-btn" onclick="insertMdLine('- ')" title="列表项">≡</button>
+            <button class="toolbar-btn" onclick="insertMdLine('> ')" title="引用">❝</button>
+            <button class="toolbar-btn" onclick="insertImageMd()" title="插入图片">🖼️</button>
+            <span class="toolbar-sep"></span>
+            <button class="toolbar-btn" id="previewToggle" onclick="togglePreview()">👁 预览</button>
+          </div>
+          <textarea class="md-textarea" id="mdEditor" placeholder="写下您的点评…（支持 Markdown 格式）">${escHtml(existingReview)}</textarea>
+          <div class="md-preview style-simple" id="mdPreview" style="display:none;"></div>
+        </div>
+
+        <div class="editor-sidebar">
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">⭐ 我的评分</div>
+            <div class="star-picker" id="step2Stars">
+              ${[1,2,3,4,5].map(i => `<button type="button" class="star ${currentRating >= i ? 'filled' : ''}" data-val="${i}" onclick="setStep2Rating(${i})">★</button>`).join('')}
+            </div>
+            <div class="sub-scores">
+              <div class="sub-score-item">
+                <label class="sub-score-label">剧情</label>
+                <input type="number" class="form-input sub-score-input" id="scorePlot" min="0" max="10" step="0.1" placeholder="0-10" value="${scores.plot != null ? scores.plot : ''}">
+              </div>
+              <div class="sub-score-item">
+                <label class="sub-score-label">呈现</label>
+                <input type="number" class="form-input sub-score-input" id="scorePresentation" min="0" max="10" step="0.1" placeholder="0-10" value="${scores.presentation != null ? scores.presentation : ''}">
+              </div>
+              <div class="sub-score-item">
+                <label class="sub-score-label">整体</label>
+                <input type="number" class="form-input sub-score-input" id="scoreOverall" min="0" max="10" step="0.1" placeholder="0-10" value="${scores.overall != null ? scores.overall : ''}">
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">🏷️ 标签</div>
+            <div class="tag-input-container">
+              <div class="tag-bubbles" id="tagBubbles"></div>
+              <input type="text" class="form-input" id="tagInputField" placeholder="输入标签，回车添加…" autocomplete="off">
+              <div class="tag-autocomplete" id="tagAutocomplete" style="display:none;"></div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">🎨 排版风格</div>
+            <div class="style-cards">
+              <div class="style-card active" data-style="simple" onclick="selectStyle('simple')">
+                <div class="style-card-name">简洁</div>
+                <div class="style-card-desc">清晰简明</div>
+              </div>
+              <div class="style-card" data-style="literary" onclick="selectStyle('literary')">
+                <div class="style-card-name">文艺</div>
+                <div class="style-card-desc">衬线优美</div>
+              </div>
+              <div class="style-card" data-style="academic" onclick="selectStyle('academic')">
+                <div class="style-card-name">学术</div>
+                <div class="style-card-desc">等宽严谨</div>
+              </div>
+            </div>
+          </div>
+
+          ${draftMedia?.coverUrl ? `
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">📷 封面预览</div>
+            <img src="${escHtml(draftMedia.coverUrl)}" style="width:100%;border-radius:8px;object-fit:cover;" onerror="this.parentElement.style.display='none'">
+          </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="editor-action-bar">
+        <button class="btn btn-ghost" onclick="cancelStep2()">← 取消</button>
+        <div style="display:flex;gap:10px;">
+          <button class="btn btn-secondary" onclick="saveDraft()">💾 保存草稿</button>
+          <button class="btn btn-primary" onclick="submitStep2()">✅ 提交条目</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  renderTagBubbles();
+  setupTagInput();
+}
+
+function setStep2Rating(val) {
+  currentRating = val;
+  document.querySelectorAll('#step2Stars .star').forEach(s => {
+    s.classList.toggle('filled', parseInt(s.dataset.val) <= val);
+  });
+}
+
+function insertMd(before, after) {
+  const ta = document.getElementById('mdEditor');
+  if (!ta) return;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const selected = ta.value.substring(start, end);
+  ta.value = ta.value.substring(0, start) + before + selected + after + ta.value.substring(end);
+  ta.selectionStart = start + before.length;
+  ta.selectionEnd = start + before.length + selected.length;
+  ta.focus();
+}
+
+function insertMdLine(prefix) {
+  const ta = document.getElementById('mdEditor');
+  if (!ta) return;
+  const start = ta.selectionStart;
+  const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+  ta.value = ta.value.substring(0, lineStart) + prefix + ta.value.substring(lineStart);
+  ta.selectionStart = ta.selectionEnd = start + prefix.length;
+  ta.focus();
+}
+
+function insertImageMd() {
+  const url = prompt('输入图片URL：');
+  if (url) {
+    const ta = document.getElementById('mdEditor');
+    if (ta) {
+      const pos = ta.selectionStart;
+      const ins = `![图片](${url})`;
+      ta.value = ta.value.substring(0, pos) + ins + ta.value.substring(pos);
+      ta.selectionStart = ta.selectionEnd = pos + ins.length;
+      ta.focus();
+    }
+  }
+}
+
+function togglePreview() {
+  step2PreviewActive = !step2PreviewActive;
+  const ta = document.getElementById('mdEditor');
+  const preview = document.getElementById('mdPreview');
+  const btn = document.getElementById('previewToggle');
+  if (!ta || !preview || !btn) return;
+
+  if (step2PreviewActive) {
+    preview.innerHTML = renderMarkdown(ta.value);
+    preview.className = `md-preview style-${step2ActiveStyle}`;
+    preview.style.display = '';
+    ta.style.display = 'none';
+    btn.textContent = '✏️ 编辑';
+  } else {
+    preview.style.display = 'none';
+    ta.style.display = '';
+    btn.innerHTML = '👁 预览';
+  }
+}
+
+function selectStyle(style) {
+  step2ActiveStyle = style;
+  document.querySelectorAll('.style-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.style === style);
+  });
+  const preview = document.getElementById('mdPreview');
+  if (preview) preview.className = `md-preview style-${style}`;
+}
+
+function renderTagBubbles() {
+  const container = document.getElementById('tagBubbles');
+  if (!container) return;
+  container.innerHTML = step2Tags.map(t =>
+    `<span class="tag-bubble">${escHtml(t)} <button onclick="removeTag(this)" data-tag="${escHtml(t)}">✕</button></span>`
+  ).join('');
+}
+
+function addTag(name) {
+  name = name.trim().toLowerCase();
+  if (!name || step2Tags.includes(name)) return;
+  step2Tags.push(name);
+  renderTagBubbles();
+}
+
+function removeTag(btn) {
+  const name = btn.dataset.tag;
+  step2Tags = step2Tags.filter(t => t !== name);
+  renderTagBubbles();
+}
+
+function setupTagInput() {
+  const input = document.getElementById('tagInputField');
+  const autocomplete = document.getElementById('tagAutocomplete');
+  if (!input) return;
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const val = input.value.replace(/,/g, '').trim();
+      if (val) addTag(val);
+      input.value = '';
+      if (autocomplete) autocomplete.style.display = 'none';
+    } else if (e.key === 'Escape') {
+      if (autocomplete) autocomplete.style.display = 'none';
+    }
+  });
+
+  input.addEventListener('input', () => {
+    const val = input.value.trim();
+    if (!val || !autocomplete) {
+      if (autocomplete) autocomplete.style.display = 'none';
+      return;
+    }
+    const matches = allTags
+      .filter(t => t.name.toLowerCase().includes(val.toLowerCase()) && !step2Tags.includes(t.name))
+      .slice(0, 8);
+    if (matches.length === 0) { autocomplete.style.display = 'none'; return; }
+    autocomplete.innerHTML = matches.map(t =>
+      `<div class="tag-ac-item" data-tag="${escHtml(t.name)}" onmousedown="handleTagAcClick(event, this)">${escHtml(t.name)}</div>`
+    ).join('');
+    autocomplete.style.display = '';
+  });
+
+  input.addEventListener('blur', () => {
+    setTimeout(() => { if (autocomplete) autocomplete.style.display = 'none'; }, AUTOCOMPLETE_HIDE_DELAY);
+  });
+}
+
+function handleTagAcClick(e, el) {
+  e.preventDefault();
+  addTag(el.dataset.tag);
+  const input = document.getElementById('tagInputField');
+  const ac = document.getElementById('tagAutocomplete');
+  if (input) { input.value = ''; input.focus(); }
+  if (ac) ac.style.display = 'none';
+}
+
+function cancelStep2() {
+  draftMedia = null;
+  step2Tags = [];
+  currentRating = 0;
+  editingMediaId = null;
+  render();
+}
+
+function saveDraft() {
+  if (!draftMedia) return;
+  const review = document.getElementById('mdEditor')?.value || '';
+  const draft = {
+    ...draftMedia,
+    review,
+    rating: currentRating || null,
+    tags: step2Tags.join(',')
+  };
+  localStorage.setItem('mediavault_draft', JSON.stringify(draft));
+  toast('草稿已保存', 'success');
+}
+
+async function submitStep2() {
+  if (!draftMedia?.title) { toast('标题不能为空', 'warning'); return; }
+
+  let review = document.getElementById('mdEditor')?.value || '';
+  const scorePlot  = document.getElementById('scorePlot')?.value;
+  const scorePres  = document.getElementById('scorePresentation')?.value;
+  const scoreTotal = document.getElementById('scoreOverall')?.value;
+
+  if (scorePlot || scorePres || scoreTotal) {
+    const scores = {};
+    if (scorePlot)  scores.plot = parseFloat(scorePlot);
+    if (scorePres)  scores.presentation = parseFloat(scorePres);
+    if (scoreTotal) scores.overall = parseFloat(scoreTotal);
+    review = `SCORES:${JSON.stringify(scores)}\n${review}`;
+  }
+
+  const data = {
+    title:       draftMedia.title,
+    type:        draftMedia.type,
+    year:        draftMedia.year || null,
+    coverUrl:    draftMedia.coverUrl || null,
+    director:    draftMedia.director || null,
+    author:      draftMedia.author || null,
+    platform:    draftMedia.platform || null,
+    genre:       draftMedia.genre || null,
+    description: draftMedia.description || null,
+    review:      review || null,
+    tags:        step2Tags.join(',') || null,
+    rating:      currentRating > 0 ? currentRating : null
+  };
+
+  try {
+    if (editingMediaId) {
+      await apiPut(`/media/${editingMediaId}`, data);
+      toast('已更新！', 'success');
+    } else {
+      await apiPost('/media', data);
+      toast('已添加！', 'success');
+    }
+    draftMedia = null;
+    step2Tags = [];
+    editingMediaId = null;
+    currentRating = 0;
+    localStorage.removeItem('mediavault_draft');
+    render();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 // ===== Lists =====
 async function renderLists() {
   const lists = await apiGet('/lists');
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">📋 My Lists</h1>
-      <button class="btn btn-primary" onclick="openCreateListModal()">➕ New List</button>
+      <h1 class="page-title">📋 我的片单</h1>
+      <button class="btn btn-primary" onclick="openCreateListModal()">➕ 新建片单</button>
     </div>
     ${lists.length ? `<div class="lists-grid">${lists.map(l => listCard(l)).join('')}</div>`
-      : emptyState('📋', 'No lists yet', 'Create a list to organize your media collection.')}
+      : emptyState('📋', '暂无片单', '创建片单来整理您的媒体收藏。')}
   `;
 }
 
@@ -566,25 +968,25 @@ function listCard(l) {
   return `<div class="list-card" onclick="navigate('/lists/${l.id}')">
     <div class="list-card-name">📋 ${escHtml(l.name)}</div>
     ${l.description ? `<div class="list-card-desc">${escHtml(l.description)}</div>` : ''}
-    <div class="list-card-count">View items →</div>
+    <div class="list-card-count">查看内容 →</div>
   </div>`;
 }
 
 function openCreateListModal() {
   openModal(`
-    <h2 style="margin-bottom:20px;font-size:20px;font-weight:700;">➕ Create New List</h2>
+    <h2 style="margin-bottom:20px;font-size:20px;font-weight:700;">➕ 新建片单</h2>
     <form onsubmit="submitCreateList(event)">
       <div class="form-group">
-        <label class="form-label">List Name *</label>
-        <input type="text" class="form-input" id="lName" required placeholder="My Watchlist">
+        <label class="form-label">片单名称 *</label>
+        <input type="text" class="form-input" id="lName" required placeholder="我的观看清单">
       </div>
       <div class="form-group">
-        <label class="form-label">Description</label>
-        <textarea class="form-textarea" id="lDesc" placeholder="What's this list for?"></textarea>
+        <label class="form-label">描述</label>
+        <textarea class="form-textarea" id="lDesc" placeholder="这个片单用来做什么？"></textarea>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Create List</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button type="submit" class="btn btn-primary">创建片单</button>
       </div>
     </form>
   `);
@@ -594,10 +996,10 @@ async function submitCreateList(e) {
   e.preventDefault();
   try {
     await apiPost('/lists', {
-      name: document.getElementById('lName').value,
+      name:        document.getElementById('lName').value,
       description: document.getElementById('lDesc').value || null
     });
-    toast('List created!', 'success');
+    toast('片单已创建！', 'success');
     closeModal();
     render();
   } catch (err) {
@@ -613,21 +1015,21 @@ async function renderListDetail(id) {
   document.getElementById('app').innerHTML = `
     <div class="page-header">
       <div>
-        <a href="#/lists" class="btn btn-ghost btn-sm" style="margin-bottom:8px;">← Back to Lists</a>
+        <a href="#/lists" class="btn btn-ghost btn-sm" style="margin-bottom:8px;">← 返回片单列表</a>
         <h1 class="page-title">📋 ${escHtml(list.name)}</h1>
         ${list.description ? `<p class="text-muted" style="margin-top:4px;">${escHtml(list.description)}</p>` : ''}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-secondary btn-sm" onclick="openAddToListModal(${id})">➕ Add Item</button>
-        <button class="btn btn-secondary btn-sm" data-id="${id}" data-name="${escHtml(list.name)}" data-desc="${escHtml(list.description||'')}" onclick="openEditListModalFromBtn(this)">✏️ Edit</button>
-        <button class="btn btn-danger btn-sm" data-id="${id}" data-name="${escHtml(list.name)}" onclick="deleteListFromBtn(this)">🗑️ Delete</button>
+        <button class="btn btn-secondary btn-sm" onclick="openAddToListModal(${id})">➕ 添加条目</button>
+        <button class="btn btn-secondary btn-sm" data-id="${id}" data-name="${escHtml(list.name)}" data-desc="${escHtml(list.description || '')}" onclick="openEditListModalFromBtn(this)">✏️ 编辑片单</button>
+        <button class="btn btn-danger btn-sm" data-id="${id}" data-name="${escHtml(list.name)}" onclick="deleteListFromBtn(this)">🗑️ 删除</button>
       </div>
     </div>
     ${items.length ? `
-    <p class="text-muted mb-1" style="font-size:13px;">Drag items to reorder</p>
+    <p class="text-muted mb-1" style="font-size:13px;">拖拽条目以重新排序</p>
     <div class="list-items-container" id="listItems">
       ${items.map((item, idx) => listItemRow(item, id, idx)).join('')}
-    </div>` : emptyState('📭', 'Empty list', 'Add some media to this list!')}
+    </div>` : emptyState('📭', '空片单', '向此片单添加媒体内容！')}
   `;
 
   setupDragAndDrop(id);
@@ -635,19 +1037,19 @@ async function renderListDetail(id) {
 
 function listItemRow(item, listId, idx) {
   const m = item.media;
-  const typePlaceholder = { movie: '🎥', tv: '📺', book: '📚', game: '🎮' };
+  const typePlaceholder = { movie: '🎥', tv: '��', book: '📚', game: '🎮' };
   const cover = m.coverUrl
-    ? `<img class="list-item-cover" src="${escHtml(m.coverUrl)}" onerror="this.outerHTML='<div class=\\'list-item-placeholder\\'>${typePlaceholder[m.type]||'📄'}</div>'">`
-    : `<div class="list-item-placeholder">${typePlaceholder[m.type]||'📄'}</div>`;
+    ? `<img class="list-item-cover" src="${escHtml(m.coverUrl)}" onerror="this.outerHTML='<div class=\\'list-item-placeholder\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
+    : `<div class="list-item-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
   return `<div class="list-item-row" draggable="true" data-media-id="${m.id}" data-order="${item.sortOrder}">
     <span class="drag-handle">⠿</span>
     ${cover}
     <div class="list-item-info">
       <div class="list-item-title">${escHtml(m.title)}</div>
-      <div class="list-item-meta"><span class="badge badge-${m.type}">${m.type}</span> ${m.year||''}</div>
+      <div class="list-item-meta"><span class="badge badge-${m.type}">${typeLabel(m.type)}</span> ${m.year || ''}</div>
     </div>
-    <button class="btn btn-ghost btn-sm btn-icon" onclick="viewFromList(${m.id})" title="View">👁️</button>
-    <button class="btn btn-ghost btn-sm btn-icon" onclick="removeFromList(${listId}, ${m.id})" title="Remove">✕</button>
+    <button class="btn btn-ghost btn-sm btn-icon" onclick="viewFromList(${m.id})" title="查看">👁️</button>
+    <button class="btn btn-ghost btn-sm btn-icon" onclick="removeFromList(${listId}, ${m.id})" title="移除">✕</button>
   </div>`;
 }
 
@@ -658,7 +1060,7 @@ function viewFromList(id) {
 async function removeFromList(listId, mediaId) {
   try {
     await apiDelete(`/lists/${listId}/items/${mediaId}`);
-    toast('Removed from list', 'success');
+    toast('已从片单移除', 'success');
     renderListDetail(listId);
   } catch (e) {
     toast(e.message, 'error');
@@ -666,10 +1068,10 @@ async function removeFromList(listId, mediaId) {
 }
 
 async function deleteList(id, name) {
-  if (!confirm(`Delete list "${name}"?`)) return;
+  if (!confirm(`确定要删除片单「${name}」吗？`)) return;
   try {
     await apiDelete(`/lists/${id}`);
-    toast('List deleted', 'success');
+    toast('片单已删除', 'success');
     navigate('/lists');
   } catch (e) {
     toast(e.message, 'error');
@@ -686,19 +1088,19 @@ function openEditListModalFromBtn(btn) {
 
 function openEditListModal(id, name, desc) {
   openModal(`
-    <h2 style="margin-bottom:20px;font-size:20px;font-weight:700;">✏️ Edit List</h2>
+    <h2 style="margin-bottom:20px;font-size:20px;font-weight:700;">✏️ 编辑片单</h2>
     <form onsubmit="submitEditList(event, ${id})">
       <div class="form-group">
-        <label class="form-label">List Name *</label>
+        <label class="form-label">片单名称 *</label>
         <input type="text" class="form-input" id="lName" required value="${escHtml(name)}">
       </div>
       <div class="form-group">
-        <label class="form-label">Description</label>
+        <label class="form-label">描述</label>
         <textarea class="form-textarea" id="lDesc">${escHtml(desc)}</textarea>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
       </div>
     </form>
   `);
@@ -708,10 +1110,10 @@ async function submitEditList(e, id) {
   e.preventDefault();
   try {
     await apiPut(`/lists/${id}`, {
-      name: document.getElementById('lName').value,
+      name:        document.getElementById('lName').value,
       description: document.getElementById('lDesc').value || null
     });
-    toast('List updated!', 'success');
+    toast('片单已更新！', 'success');
     closeModal();
     renderListDetail(id);
   } catch (err) {
@@ -722,10 +1124,10 @@ async function submitEditList(e, id) {
 async function openAddToListModal(listId) {
   const media = await apiGet('/media');
   openModal(`
-    <h2 style="margin-bottom:16px;font-size:20px;font-weight:700;">➕ Add to List</h2>
+    <h2 style="margin-bottom:16px;font-size:20px;font-weight:700;">➕ 添加到片单</h2>
     <div class="search-box" style="margin-bottom:12px;">
       <span>🔍</span>
-      <input type="text" id="selectorSearch" placeholder="Search media…" oninput="filterSelector(this.value)">
+      <input type="text" id="selectorSearch" placeholder="搜索媒体…" oninput="filterSelector(this.value)">
     </div>
     <div class="media-selector" id="mediaSelector">
       ${media.map(m => selectorItem(m, listId)).join('')}
@@ -738,13 +1140,13 @@ async function openAddToListModal(listId) {
 function selectorItem(m, listId) {
   const typePlaceholder = { movie: '🎥', tv: '📺', book: '📚', game: '🎮' };
   const cover = m.coverUrl
-    ? `<img class="selector-cover" src="${escHtml(m.coverUrl)}" onerror="this.outerHTML='<div class=\\'selector-placeholder\\'>${typePlaceholder[m.type]||'📄'}</div>'">`
-    : `<div class="selector-placeholder">${typePlaceholder[m.type]||'📄'}</div>`;
+    ? `<img class="selector-cover" src="${escHtml(m.coverUrl)}" onerror="this.outerHTML='<div class=\\'selector-placeholder\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
+    : `<div class="selector-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
   return `<div class="media-selector-item" onclick="addToList(${listId}, ${m.id})">
     ${cover}
     <div class="selector-info">
       <div class="selector-title">${escHtml(m.title)}</div>
-      <div class="selector-meta"><span class="badge badge-${m.type}">${m.type}</span> ${m.year||''}</div>
+      <div class="selector-meta"><span class="badge badge-${m.type}">${typeLabel(m.type)}</span> ${m.year || ''}</div>
     </div>
   </div>`;
 }
@@ -760,7 +1162,7 @@ function filterSelector(search) {
 async function addToList(listId, mediaId) {
   try {
     await apiPost(`/lists/${listId}/items`, { mediaId });
-    toast('Added to list!', 'success');
+    toast('已添加到片单！', 'success');
     closeModal();
     renderListDetail(listId);
   } catch (e) {
@@ -819,7 +1221,7 @@ function setupDragAndDrop(listId) {
     try {
       await apiPut(`/lists/${listId}/reorder`, reorderData);
     } catch (e) {
-      toast('Reorder failed', 'error');
+      toast('排序保存失败', 'error');
     }
   });
 }
@@ -831,7 +1233,7 @@ async function renderTags() {
 
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <h1 class="page-title">🏷️ Tags</h1>
+      <h1 class="page-title">🏷️ 标签</h1>
     </div>
     ${tags.length ? `
     <div class="tags-grid">
@@ -842,16 +1244,16 @@ async function renderTags() {
         </div>
       `).join('')}
     </div>
-    <p class="text-muted" style="font-size:13px;">Tags are created automatically when you add media. Click a tag to browse media with that tag.</p>
-    ` : emptyState('🏷️', 'No tags yet', 'Tags are created when you add media items.')}
+    <p class="text-muted" style="font-size:13px;">标签在添加媒体时自动创建。点击标签可按标签浏览媒体。</p>
+    ` : emptyState('🏷️', '暂无标签', '在添加媒体条目时会自动创建标签。')}
   `;
 }
 
 async function deleteTag(id, name) {
-  if (!confirm(`Delete tag "${name}"? It will be removed from all media.`)) return;
+  if (!confirm(`确定要删除标签「${name}」吗？删除后将从所有媒体中移除。`)) return;
   try {
     await apiDelete(`/tags/${id}`);
-    toast('Tag deleted', 'success');
+    toast('标签已删除', 'success');
     renderTags();
   } catch (e) {
     toast(e.message, 'error');
@@ -860,25 +1262,6 @@ async function deleteTag(id, name) {
 
 function deleteTagFromBtn(btn) {
   deleteTag(btn.dataset.id, btn.dataset.name);
-}
-
-// ===== Utilities =====
-function escHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function emptyState(icon, title, text) {
-  return `<div class="empty-state">
-    <div class="empty-state-icon">${icon}</div>
-    <div class="empty-state-title">${title}</div>
-    <div class="empty-state-text">${text}</div>
-  </div>`;
 }
 
 // Initial render
