@@ -294,6 +294,8 @@ async function render() {
       await renderListDetail(id);
     } else if (route === '/tags') {
       await renderTags();
+    } else if (route === '/format') {
+      await renderFormatPage();
     } else {
       app.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">页面未找到</div><a href="#/" class="btn btn-primary mt-2">返回主页</a></div>`;
     }
@@ -338,6 +340,16 @@ async function renderDashboard() {
     .map(mod => `<div class="dashboard-module">${renderModule(mod.id, { media, lists, tags, counts })}</div>`)
     .join('');
 
+  const draftJson = localStorage.getItem('mediavault_draft');
+  const draftBanner = draftJson ? `
+    <div class="draft-banner" style="background:var(--accent-light);border:1px solid var(--accent);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
+      <span>📝 您有一份未提交的草稿</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="loadDraft()">✏️ 继续编辑</button>
+        <button class="btn btn-ghost btn-sm" onclick="discardDraft()">🗑️ 丢弃</button>
+      </div>
+    </div>` : '';
+
   document.getElementById('app').innerHTML = `
     <div class="page-header">
       <h1 class="page-title">🏠 主页</h1>
@@ -346,12 +358,36 @@ async function renderDashboard() {
         <button class="btn btn-primary" onclick="openAddMediaStep1()">➕ 添加媒体</button>
       </div>
     </div>
+    ${draftBanner}
     ${modulesHtml || `<div class="empty-state">
       <div class="empty-state-icon">⚙️</div>
       <div class="empty-state-title">所有模块已隐藏</div>
       <button class="btn btn-secondary" onclick="openDashboardConfig()">配置模块</button>
     </div>`}
   `;
+}
+
+function loadDraft() {
+  const json = localStorage.getItem('mediavault_draft');
+  if (!json) return;
+  try {
+    const draft = JSON.parse(json);
+    draftMedia = draft;
+    editingMediaId = draft.id || null;
+    currentRating = draft.rating || 0;
+    step2Tags = draft.tags ? draft.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+    renderStep2Editor();
+  } catch (e) {
+    toast('草稿读取失败', 'error');
+  }
+}
+
+function discardDraft() {
+  if (confirm('确定丢弃草稿吗？')) {
+    localStorage.removeItem('mediavault_draft');
+    toast('草稿已丢弃', 'info');
+    renderDashboard();
+  }
 }
 
 function renderModule(moduleId, data) {
@@ -381,25 +417,30 @@ function renderModule(moduleId, data) {
           </div>`}`;
   }
   if (moduleId === 'random') {
-    if (!media.length) return `<h2 class="section-title">随机推荐</h2><p style="color:var(--text-secondary)">暂无媒体可推荐。</p>`;
+    if (!media.length) return `<div id="randomModuleContainer"><h2 class="section-title">随机推荐</h2><p style="color:var(--text-secondary)">暂无媒体可推荐。</p></div>`;
     const m = media[Math.floor(Math.random() * media.length)];
     const typePlaceholder = { movie: '🎥', tv: '📺', book: '📚', game: '🎮' };
     const cover = m.coverUrl
       ? `<img class="random-spotlight-cover" src="${escHtml(m.coverUrl)}" alt="${escHtml(m.title)}" onerror="this.outerHTML='<div class=\\'random-spotlight-placeholder\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
       : `<div class="random-spotlight-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
     return `
-      <h2 class="section-title">随机推荐</h2>
-      <div class="random-spotlight" onclick="showMediaDetail(${m.id})" style="cursor:pointer;">
-        ${cover}
-        <div class="random-spotlight-info">
-          <div class="random-spotlight-title">${escHtml(m.title)}</div>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-            <span class="badge badge-${m.type}">${typeLabel(m.type)}</span>
-            ${m.year ? `<span style="color:var(--text-secondary);font-size:13px;">${m.year}</span>` : ''}
+      <div id="randomModuleContainer">
+        <h2 class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+          随机推荐
+          <button class="btn btn-ghost btn-sm" onclick="refreshRandomModule()" title="换一个">🔄 换一个</button>
+        </h2>
+        <div class="random-spotlight" onclick="showMediaDetail(${m.id})" style="cursor:pointer;">
+          ${cover}
+          <div class="random-spotlight-info">
+            <div class="random-spotlight-title">${escHtml(m.title)}</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+              <span class="badge badge-${m.type}">${typeLabel(m.type)}</span>
+              ${m.year ? `<span style="color:var(--text-secondary);font-size:13px;">${m.year}</span>` : ''}
+            </div>
+            ${m.rating ? `<div class="stars">${renderStars(m.rating)}</div>` : ''}
+            ${m.genre ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">${escHtml(m.genre)}</div>` : ''}
+            ${m.description ? `<div style="font-size:13px;margin-top:8px;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(m.description)}</div>` : ''}
           </div>
-          ${m.rating ? `<div class="stars">${renderStars(m.rating)}</div>` : ''}
-          ${m.genre ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">${escHtml(m.genre)}</div>` : ''}
-          ${m.description ? `<div style="font-size:13px;margin-top:8px;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(m.description)}</div>` : ''}
         </div>
       </div>`;
   }
@@ -417,6 +458,34 @@ function renderModule(moduleId, data) {
         : `<p style="color:var(--text-secondary);">暂无片单。<a href="#/lists" style="color:var(--accent);">创建片单</a></p>`}`;
   }
   return '';
+}
+
+function refreshRandomModule() {
+  const container = document.getElementById('randomModuleContainer');
+  if (!container || !allMedia.length) return;
+  const m = allMedia[Math.floor(Math.random() * allMedia.length)];
+  const typePlaceholder = { movie: '🎥', tv: '📺', book: '📚', game: '🎮' };
+  const cover = m.coverUrl
+    ? `<img class="random-spotlight-cover" src="${escHtml(m.coverUrl)}" alt="${escHtml(m.title)}" onerror="this.outerHTML='<div class=\\'random-spotlight-placeholder\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
+    : `<div class="random-spotlight-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
+  container.innerHTML = `
+    <h2 class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+      随机推荐
+      <button class="btn btn-ghost btn-sm" onclick="refreshRandomModule()" title="换一个">🔄 换一个</button>
+    </h2>
+    <div class="random-spotlight" onclick="showMediaDetail(${m.id})" style="cursor:pointer;">
+      ${cover}
+      <div class="random-spotlight-info">
+        <div class="random-spotlight-title">${escHtml(m.title)}</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+          <span class="badge badge-${m.type}">${typeLabel(m.type)}</span>
+          ${m.year ? `<span style="color:var(--text-secondary);font-size:13px;">${m.year}</span>` : ''}
+        </div>
+        ${m.rating ? `<div class="stars">${renderStars(m.rating)}</div>` : ''}
+        ${m.genre ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">${escHtml(m.genre)}</div>` : ''}
+        ${m.description ? `<div style="font-size:13px;margin-top:8px;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(m.description)}</div>` : ''}
+      </div>
+    </div>`;
 }
 
 function openDashboardConfig() {
@@ -544,7 +613,8 @@ function filterByTag(tag, el) {
   document.querySelectorAll('.tag-chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   const search = document.getElementById('searchInput')?.value || '';
-  const type = currentRoute.replace('/', '');
+  const routeTypeMap = { '/movies': 'movie', '/tv': 'tv', '/books': 'book', '/games': 'game' };
+  const type = routeTypeMap[currentRoute] || currentRoute.replace('/', '');
   filterMedia(type, search);
 }
 
@@ -626,8 +696,16 @@ async function showMediaDetail(id) {
       </div>
     </div>
     ${m.description ? `<div class="detail-section"><div class="detail-section-label">简介</div><div class="detail-section-value">${escHtml(m.description)}</div></div>` : ''}
-    ${cleanedReview ? `<div class="detail-section"><div class="detail-section-label">我的点评</div><div class="detail-section-value">${escHtml(cleanedReview)}</div></div>` : ''}
     ${tags.length ? `<div class="detail-section"><div class="detail-section-label">标签</div><div class="detail-tags">${tags.map(t => `<span class="tag-chip">${escHtml(t.trim())}</span>`).join('')}</div></div>` : ''}
+    ${cleanedReview ? `
+    <div class="detail-section">
+      <div class="detail-section-label" style="display:flex;align-items:center;justify-content:space-between;">
+        我的点评
+        <button class="btn btn-ghost btn-sm" onclick="toggleReviewFormat(this)" data-mode="raw">📖 排版预览</button>
+      </div>
+      <div class="detail-review-raw" id="reviewRaw" style="white-space:pre-wrap;">${escHtml(cleanedReview)}</div>
+      <div class="md-preview" id="reviewFormatted" style="display:none;">${renderMarkdown(cleanedReview)}</div>
+    </div>` : ''}
     <div class="detail-actions">
       <button class="btn btn-secondary" onclick="openEditStep1(${m.id})">✏️ 编辑</button>
       <button class="btn btn-danger" data-id="${m.id}" data-title="${escHtml(m.title)}" onclick="deleteMediaFromBtn(this)">🗑️ 删除</button>
@@ -643,6 +721,17 @@ async function openEditStep1(id) {
   } catch (e) {
     toast(e.message, 'error');
   }
+}
+
+function toggleReviewFormat(btn) {
+  const raw = document.getElementById('reviewRaw');
+  const formatted = document.getElementById('reviewFormatted');
+  if (!raw || !formatted) return;
+  const isShowing = btn.dataset.mode === 'formatted';
+  raw.style.display = isShowing ? '' : 'none';
+  formatted.style.display = isShowing ? 'none' : '';
+  btn.dataset.mode = isShowing ? 'raw' : 'formatted';
+  btn.textContent = isShowing ? '📖 排版预览' : '📝 纯文本';
 }
 
 // ===== Step 1 Modal =====
@@ -754,15 +843,18 @@ function goToStep2() {
     description: document.getElementById('fDescription').value || null
   };
 
+  const savedEditingId = editingMediaId; // save before closeModal resets it
   closeModal();
+  editingMediaId = savedEditingId; // restore
   renderStep2Editor();
 }
 
 // ===== Auto-Fetch =====
 async function autoFetch() {
-  const title = document.getElementById('fetchTitle')?.value;
+  const title = document.getElementById('fetchTitle')?.value?.trim();
   const type = document.getElementById('fType')?.value || 'movie';
-  if (!title?.trim()) { toast('请输入标题', 'warning'); return; }
+  if (!title) { toast('请输入标题', 'warning'); return; }
+  if (title.length < 2) { toast('请输入至少2个字符以搜索', 'warning'); return; }
 
   const indicator = document.getElementById('fetchingIndicator');
   const btn = document.getElementById('fetchBtn');
@@ -770,7 +862,7 @@ async function autoFetch() {
   if (btn) btn.disabled = true;
 
   try {
-    const m = await apiPost('/fetch', { title: title.trim(), type });
+    const m = await apiPost('/fetch', { title, type });
     if (m.title)       document.getElementById('fTitle').value = m.title;
     if (m.coverUrl)    document.getElementById('fCoverUrl').value = m.coverUrl;
     if (m.description) document.getElementById('fDescription').value = m.description;
@@ -810,7 +902,7 @@ function deleteMediaFromBtn(btn) {
 function renderStep2Editor() {
   const { review: existingReview, scores } = parseScores(draftMedia?.review || '');
   step2Tags = draftMedia?.tags ? draftMedia.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-  step2ActiveStyle = 'simple';
+  step2ActiveStyle = draftMedia?.reviewStyle || 'simple';
   step2PreviewActive = false;
   currentRating = draftMedia?.rating || currentRating || 0;
 
@@ -875,17 +967,21 @@ function renderStep2Editor() {
           <div class="sidebar-section">
             <div class="sidebar-section-title">🎨 排版风格</div>
             <div class="style-cards">
-              <div class="style-card active" data-style="simple" onclick="selectStyle('simple')">
+              <div class="style-card ${step2ActiveStyle === 'simple' ? 'active' : ''}" data-style="simple" onclick="selectStyle('simple')">
                 <div class="style-card-name">简洁</div>
                 <div class="style-card-desc">清晰简明</div>
               </div>
-              <div class="style-card" data-style="literary" onclick="selectStyle('literary')">
+              <div class="style-card ${step2ActiveStyle === 'literary' ? 'active' : ''}" data-style="literary" onclick="selectStyle('literary')">
                 <div class="style-card-name">文艺</div>
                 <div class="style-card-desc">衬线优美</div>
               </div>
-              <div class="style-card" data-style="academic" onclick="selectStyle('academic')">
+              <div class="style-card ${step2ActiveStyle === 'academic' ? 'active' : ''}" data-style="academic" onclick="selectStyle('academic')">
                 <div class="style-card-name">学术</div>
                 <div class="style-card-desc">等宽严谨</div>
+              </div>
+              <div class="style-card ${step2ActiveStyle === 'cinematic' ? 'active' : ''}" data-style="cinematic" onclick="selectStyle('cinematic')">
+                <div class="style-card-name">电影</div>
+                <div class="style-card-desc">暗色沉浸</div>
               </div>
             </div>
           </div>
@@ -983,6 +1079,7 @@ function selectStyle(style) {
   });
   const preview = document.getElementById('mdPreview');
   if (preview) preview.className = `md-preview style-${style}`;
+  if (draftMedia) draftMedia.reviewStyle = style;
 }
 
 function renderTagBubbles() {
@@ -1043,6 +1140,18 @@ function setupTagInput() {
 
   input.addEventListener('focus', () => {
     if (autocompleteHideTimer) { clearTimeout(autocompleteHideTimer); autocompleteHideTimer = null; }
+    if (!input.value.trim() && autocomplete && allTags.length > 0) {
+      const suggestions = allTags
+        .filter(t => !step2Tags.includes(t.name.toLowerCase()))
+        .slice(0, 8);
+      if (suggestions.length > 0) {
+        autocomplete.innerHTML = `<div style="padding:6px 12px;font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">常用标签</div>` +
+          suggestions.map(t =>
+            `<div class="tag-ac-item" data-tag="${escHtml(t.name)}" onmousedown="handleTagAcClick(event, this)">${escHtml(t.name)}</div>`
+          ).join('');
+        autocomplete.style.display = '';
+      }
+    }
   });
 
   input.addEventListener('blur', () => {
@@ -1176,12 +1285,12 @@ async function submitCreateList(e) {
   e.preventDefault();
   try {
     await apiPost('/lists', {
-      name:        document.getElementById('lName').value,
-      description: document.getElementById('lDesc').value || null
+      name:        document.getElementById('lName').value.trim(),
+      description: document.getElementById('lDesc').value.trim() || null
     });
     toast('片单已创建！', 'success');
     closeModal();
-    render();
+    await render();
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -1220,20 +1329,78 @@ async function renderListDetail(id) {
 
 function listItemRow(item, listId, idx) {
   const m = item.media;
-  const typePlaceholder = { movie: '🎥', tv: '��', book: '📚', game: '🎮' };
+  const typePlaceholder = { movie: '🎥', tv: '📺', book: '📚', game: '🎮' };
   const cover = m.coverUrl
     ? `<img class="list-item-cover" src="${escHtml(m.coverUrl)}" onerror="this.outerHTML='<div class=\\'list-item-placeholder\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
     : `<div class="list-item-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
+
+  const stars = item.itemRating ? renderStars(item.itemRating) : '';
+  const noteHtml = item.note ? `<div class="list-item-note">${escHtml(item.note)}</div>` : '';
+
   return `<div class="list-item-row" draggable="true" data-media-id="${m.id}" data-order="${item.sortOrder}">
     <span class="drag-handle">⠿</span>
     ${cover}
     <div class="list-item-info">
       <div class="list-item-title">${escHtml(m.title)}</div>
-      <div class="list-item-meta"><span class="badge badge-${m.type}">${typeLabel(m.type)}</span> ${m.year || ''}</div>
+      <div class="list-item-meta"><span class="badge badge-${m.type}">${typeLabel(m.type)}</span> ${m.year || ''}${stars ? `<span class="stars" style="margin-left:6px;">${stars}</span>` : ''}</div>
+      ${noteHtml}
     </div>
+    <button class="btn btn-ghost btn-sm btn-icon"
+      data-list-id="${listId}" data-media-id="${m.id}"
+      data-note="${escHtml(item.note || '')}" data-rating="${item.itemRating || 0}"
+      onclick="openEditListItemModalFromBtn(this)" title="简评">💬</button>
     <button class="btn btn-ghost btn-sm btn-icon" onclick="viewFromList(${m.id})" title="查看">👁️</button>
     <button class="btn btn-ghost btn-sm btn-icon" onclick="removeFromList(${listId}, ${m.id})" title="移除">✕</button>
   </div>`;
+}
+
+function openEditListItemModalFromBtn(btn) {
+  const listId = parseInt(btn.dataset.listId);
+  const mediaId = parseInt(btn.dataset.mediaId);
+  const currentNote = btn.dataset.note || '';
+  const currentItemRating = parseFloat(btn.dataset.rating) || 0;
+  openEditListItemModal(listId, mediaId, currentNote, currentItemRating);
+}
+
+function openEditListItemModal(listId, mediaId, currentNote, currentItemRating) {
+  openModal(`
+    <h2 style="margin-bottom:16px;font-size:20px;font-weight:700;">💬 片单简评</h2>
+    <div class="form-group">
+      <label class="form-label">⭐ 评分</label>
+      <div class="star-picker" id="itemStarPicker">
+        ${[1,2,3,4,5].map(i => `<button type="button" class="star ${currentItemRating >= i ? 'filled' : ''}" data-val="${i}" onclick="setItemRating(${i})">★</button>`).join('')}
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">一句话简评（选填）</label>
+      <textarea class="form-textarea" id="itemNote" rows="3" placeholder="简短说说您的感受…">${escHtml(currentNote)}</textarea>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveListItemNote(${listId}, ${mediaId})">保存</button>
+    </div>
+  `);
+  window._itemRatingVal = currentItemRating || 0;
+}
+
+function setItemRating(val) {
+  window._itemRatingVal = val;
+  document.querySelectorAll('#itemStarPicker .star').forEach(s => {
+    s.classList.toggle('filled', parseInt(s.dataset.val) <= val);
+  });
+}
+
+async function saveListItemNote(listId, mediaId) {
+  const note = document.getElementById('itemNote')?.value?.trim() || null;
+  const itemRating = window._itemRatingVal > 0 ? window._itemRatingVal : null;
+  try {
+    await apiPut(`/lists/${listId}/items/${mediaId}`, { note, itemRating });
+    toast('简评已保存', 'success');
+    closeModal();
+    renderListDetail(listId);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
 }
 
 function viewFromList(id) {
@@ -1293,12 +1460,12 @@ async function submitEditList(e, id) {
   e.preventDefault();
   try {
     await apiPut(`/lists/${id}`, {
-      name:        document.getElementById('lName').value,
-      description: document.getElementById('lDesc').value || null
+      name:        document.getElementById('lName').value.trim(),
+      description: document.getElementById('lDesc').value.trim() || null
     });
     toast('片单已更新！', 'success');
     closeModal();
-    renderListDetail(id);
+    await renderListDetail(id);
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -1449,25 +1616,188 @@ function deleteTagFromBtn(btn) {
 
 // ===== List Export =====
 async function exportListImage(listId) {
-  const el = document.getElementById('listItems');
-  if (!el) { toast('没有可导出的内容', 'warning'); return; }
-  toast('正在生成图片…', 'info');
+  toast('正在生成图片，请稍候…', 'info');
   try {
-    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#f8f9fa';
-    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: bgColor });
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:860px;height:auto;border:none;visibility:hidden;';
+    document.body.appendChild(iframe);
+    await new Promise((resolve, reject) => {
+      iframe.onload = resolve;
+      iframe.onerror = () => reject(new Error('iframe load failed'));
+      iframe.src = `/api/lists/${listId}/export?embed=1`;
+      setTimeout(() => reject(new Error('timeout')), 12000);
+    });
+    await new Promise(r => setTimeout(r, 800));
+    const doc = iframe.contentDocument;
+    const body = doc.body;
+    body.style.padding = '32px';
+    iframe.style.height = body.scrollHeight + 'px';
+    const canvas = await html2canvas(body, {
+      scale: 2, useCORS: true, allowTaint: true,
+      width: 860, windowWidth: 860,
+      backgroundColor: '#ffffff'
+    });
+    document.body.removeChild(iframe);
     const link = document.createElement('a');
-    link.download = (currentListName || 'playlist') + '.png';
+    link.download = (currentListName || 'playlist').replace(/[/\\?%*:|"<>]/g, '_') + '.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
     toast('图片已导出！', 'success');
   } catch (e) {
-    console.error('html2canvas error:', e);
-    toast('图片导出失败，请检查图片链接或重试', 'error');
+    console.error('Export image error:', e);
+    const frames = document.querySelectorAll('iframe[style*="-9999px"]');
+    frames.forEach(f => f.remove());
+    toast('图片导出失败，请使用"导出PDF"替代', 'error');
   }
 }
 
 function exportListPDF(listId) {
   window.open(`/api/lists/${listId}/export`, '_blank');
+}
+
+// ===== Format Page =====
+async function renderFormatPage() {
+  document.getElementById('app').innerHTML = `
+    <div class="editor-page">
+      <div class="page-header">
+        <h1 class="page-title">📄 排版与导出</h1>
+      </div>
+      <div class="editor-layout">
+        <div class="editor-pane">
+          <div class="editor-toolbar">
+            <button class="toolbar-btn" onclick="insertMd('**','**')"><strong>B</strong></button>
+            <button class="toolbar-btn" onclick="insertMd('*','*')"><em>I</em></button>
+            <button class="toolbar-btn" onclick="insertMdLine('# ')">H1</button>
+            <button class="toolbar-btn" onclick="insertMdLine('## ')">H2</button>
+            <button class="toolbar-btn" onclick="insertMdLine('### ')">H3</button>
+            <button class="toolbar-btn" onclick="insertMdLine('- ')">≡</button>
+            <button class="toolbar-btn" onclick="insertMdLine('> ')">❝</button>
+            <button class="toolbar-btn" onclick="insertMdLine('---')">—</button>
+            <span class="toolbar-sep"></span>
+            <button class="toolbar-btn" id="previewToggle" onclick="togglePreview()">👁 预览</button>
+            <button class="toolbar-btn" onclick="formatOneKey()">✨ 一键排版</button>
+          </div>
+          <textarea class="md-textarea" id="mdEditor" placeholder="在此输入或粘贴长文内容，支持 Markdown 格式…" style="min-height:500px;"></textarea>
+          <div class="md-preview style-simple" id="mdPreview" style="display:none;min-height:500px;"></div>
+        </div>
+        <div class="editor-sidebar">
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">🎨 排版风格</div>
+            <div class="style-cards">
+              <div class="style-card active" data-style="simple" onclick="selectStyle('simple')">
+                <div class="style-card-name">简洁</div><div class="style-card-desc">清晰简明</div>
+              </div>
+              <div class="style-card" data-style="literary" onclick="selectStyle('literary')">
+                <div class="style-card-name">文艺</div><div class="style-card-desc">衬线优美</div>
+              </div>
+              <div class="style-card" data-style="academic" onclick="selectStyle('academic')">
+                <div class="style-card-name">学术</div><div class="style-card-desc">等宽严谨</div>
+              </div>
+              <div class="style-card" data-style="cinematic" onclick="selectStyle('cinematic')">
+                <div class="style-card-name">电影</div><div class="style-card-desc">暗色沉浸</div>
+              </div>
+            </div>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">📥 导出</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <button class="btn btn-primary" onclick="exportFormatPDF()">🖨️ 导出PDF</button>
+              <button class="btn btn-secondary" onclick="exportFormatImage()">📷 导出图片</button>
+            </div>
+            <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">导出PDF：点击后在打印对话框选择"另存为PDF"</p>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-section-title">💡 使用说明</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.7;">
+              <p>• **粗体** *斜体* ~~删除线~~</p>
+              <p>• # 一级标题  ## 二级标题</p>
+              <p>• - 无序列表  1. 有序列表</p>
+              <p>• &gt; 引用  --- 分割线</p>
+              <p>• 一键排版：自动整理标点、空格</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  step2ActiveStyle = 'simple';
+  step2PreviewActive = false;
+}
+
+function formatOneKey() {
+  const ta = document.getElementById('mdEditor');
+  if (!ta) return;
+  let text = ta.value;
+  text = text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/　/g, ' ')
+    .replace(/([，。！？；：])([a-zA-Z0-9])/g, '$1 $2')
+    .replace(/([a-zA-Z0-9])([\u4e00-\u9fa5])/g, '$1 $2')
+    .replace(/([\u4e00-\u9fa5])([a-zA-Z0-9])/g, '$1 $2')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n');
+  ta.value = text;
+  toast('一键排版完成！', 'success');
+}
+
+function exportFormatPDF() {
+  const ta = document.getElementById('mdEditor');
+  if (!ta?.value?.trim()) { toast('请先输入内容', 'warning'); return; }
+  const style = step2ActiveStyle;
+  const content = renderMarkdown(ta.value);
+  const styleMap = {
+    simple:    'font-family: system-ui, sans-serif; line-height: 1.8;',
+    literary:  'font-family: Georgia, serif; line-height: 1.9; font-size: 16px;',
+    academic:  'font-family: "Courier New", monospace; line-height: 1.8; font-size: 14px;',
+    cinematic: 'font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0ff; line-height: 1.9;'
+  };
+  const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><style>
+    body { ${styleMap[style] || styleMap.simple} padding: 40px; max-width: 800px; margin: 0 auto; }
+    h1,h2,h3 { margin: 16px 0 8px; }
+    p { margin: 8px 0; }
+    blockquote { border-left: 4px solid #6c63ff; padding: 8px 16px; margin: 12px 0; background: rgba(108,99,255,0.1); }
+    code { background: rgba(0,0,0,0.1); padding: 1px 4px; border-radius: 3px; }
+    ul,ol { padding-left: 24px; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 16px 0; }
+    @media print { body { padding: 20px; } }
+  </style></head><body>${content}</body></html>`;
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 500);
+  }
+}
+
+async function exportFormatImage() {
+  const ta = document.getElementById('mdEditor');
+  if (!ta?.value?.trim()) { toast('请先输入内容', 'warning'); return; }
+  const preview = document.getElementById('mdPreview');
+  const wasHidden = preview.style.display === 'none';
+  preview.innerHTML = renderMarkdown(ta.value);
+  preview.className = `md-preview style-${step2ActiveStyle}`;
+  preview.style.display = '';
+  ta.style.display = 'none';
+  toast('正在生成图片…', 'info');
+  try {
+    const canvas = await html2canvas(preview, {
+      scale: 2, useCORS: true,
+      backgroundColor: getComputedStyle(preview).backgroundColor || '#ffffff'
+    });
+    const link = document.createElement('a');
+    link.download = '排版内容.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    toast('图片已导出！', 'success');
+  } catch (e) {
+    toast('图片导出失败', 'error');
+  } finally {
+    if (wasHidden) {
+      preview.style.display = 'none';
+      ta.style.display = '';
+    }
+  }
 }
 
 // Initial render

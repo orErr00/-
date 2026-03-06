@@ -31,6 +31,8 @@ public class MediaList {
         private int mediaId;
         private int sortOrder;
         private Media media;
+        private String note;
+        private Double itemRating;
 
         public MediaListItem() {}
 
@@ -42,5 +44,11 @@ public class MediaList {
 
         public Media getMedia() { return media; }
         public void setMedia(Media media) { this.media = media; }
+
+        public String getNote() { return note; }
+        public void setNote(String note) { this.note = note; }
+
+        public Double getItemRating() { return itemRating; }
+        public void setItemRating(Double itemRating) { this.itemRating = itemRating; }
     }
 }

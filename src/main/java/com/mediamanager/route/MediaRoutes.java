@@ -256,7 +256,57 @@ public class MediaRoutes {
         } catch (Exception e) {
             System.err.println("Auto-fetch failed: " + e.getMessage());
         }
+
+        // Try Douban as fallback for better Chinese results
+        if (media.getCoverUrl() == null || media.getDescription() == null) {
+            fetchFromDouban(media, title, type);
+        }
+
         return media;
+    }
+
+    private static void fetchFromDouban(Media media, String title, String type) {
+        try {
+            String encodedTitle = URLEncoder.encode(title, StandardCharsets.UTF_8);
+            String cat = "book".equals(type) ? "1001" : ("movie".equals(type) || "tv".equals(type)) ? "1002" : "1003";
+            String searchUrl = "https://www.douban.com/search?q=" + encodedTitle + "&cat=" + cat;
+
+            var conn = (HttpURLConnection) new URI(searchUrl).toURL().openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(6000);
+            conn.setReadTimeout(6000);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9");
+
+            if (conn.getResponseCode() == 200) {
+                org.jsoup.nodes.Document doc = org.jsoup.Jsoup.parse(conn.getInputStream(), "UTF-8", searchUrl);
+                org.jsoup.nodes.Element result = doc.selectFirst(".result-list .result");
+                if (result != null) {
+                    org.jsoup.nodes.Element titleEl = result.selectFirst("h3 a");
+                    if (titleEl != null) {
+                        media.setTitle(titleEl.text().replaceAll("\\s*\\(.*?\\)\\s*$", "").trim());
+                    }
+                    org.jsoup.nodes.Element ratingEl = result.selectFirst(".rating_nums");
+                    if (ratingEl != null && !ratingEl.text().isBlank()) {
+                        try {
+                            double r = Double.parseDouble(ratingEl.text());
+                            if (media.getRating() == null) media.setRating(Math.min(5.0, r / 2.0));
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    org.jsoup.nodes.Element imgEl = result.selectFirst("img");
+                    if (imgEl != null && media.getCoverUrl() == null) {
+                        String src = imgEl.attr("src");
+                        if (!src.isEmpty()) media.setCoverUrl(src);
+                    }
+                    org.jsoup.nodes.Element subjectEl = result.selectFirst(".subject-cast");
+                    if (subjectEl != null && media.getDescription() == null) {
+                        media.setDescription(subjectEl.text());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Douban fetch failed: " + e.getMessage());
+        }
     }
 
     private static void fetchFromOpenLibrary(Media media, String encodedTitle) throws Exception {

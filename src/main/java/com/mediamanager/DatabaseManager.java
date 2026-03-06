@@ -83,6 +83,10 @@ public class DatabaseManager {
                 )
                 """);
 
+            // Add note and item_rating to list_items if not already present
+            try { stmt.executeUpdate("ALTER TABLE list_items ADD COLUMN note TEXT"); } catch (SQLException e) { /* column exists */ }
+            try { stmt.executeUpdate("ALTER TABLE list_items ADD COLUMN item_rating REAL"); } catch (SQLException e) { /* column exists */ }
+
             System.out.println("Database initialized successfully.");
         } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize database", e);

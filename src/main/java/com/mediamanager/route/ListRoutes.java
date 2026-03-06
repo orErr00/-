@@ -45,7 +45,8 @@ public class ListRoutes {
             try {
                 JsonObject body = JsonParser.parseString(req.body()).getAsJsonObject();
                 String name = body.has("name") ? body.get("name").getAsString() : "";
-                String description = body.has("description") ? body.get("description").getAsString() : null;
+                String description = (body.has("description") && !body.get("description").isJsonNull())
+                    ? body.get("description").getAsString() : null;
 
                 if (name.isBlank()) {
                     res.status(400);
@@ -110,7 +111,8 @@ public class ListRoutes {
             try {
                 JsonObject body = JsonParser.parseString(req.body()).getAsJsonObject();
                 String name = body.has("name") ? body.get("name").getAsString() : "";
-                String description = body.has("description") ? body.get("description").getAsString() : null;
+                String description = (body.has("description") && !body.get("description").isJsonNull())
+                    ? body.get("description").getAsString() : null;
 
                 if (name.isBlank()) {
                     res.status(400);
@@ -230,6 +232,38 @@ public class ListRoutes {
             return "";
         });
 
+        Spark.put("/api/lists/:id/items/:mediaId", (req, res) -> {
+            res.type("application/json");
+            int listId, mediaId;
+            try {
+                listId = Integer.parseInt(req.params("id"));
+                mediaId = Integer.parseInt(req.params("mediaId"));
+            } catch (NumberFormatException e) {
+                res.status(400);
+                return GSON.toJson(Map.of("error", "Invalid id"));
+            }
+            try {
+                JsonObject body = JsonParser.parseString(req.body()).getAsJsonObject();
+                String note = (body.has("note") && !body.get("note").isJsonNull())
+                    ? body.get("note").getAsString() : null;
+                Double itemRating = (body.has("itemRating") && !body.get("itemRating").isJsonNull())
+                    ? body.get("itemRating").getAsDouble() : null;
+                try (Connection conn = DatabaseManager.getConnection();
+                     PreparedStatement ps = conn.prepareStatement(
+                         "UPDATE list_items SET note = ?, item_rating = ? WHERE list_id = ? AND media_id = ?")) {
+                    ps.setString(1, note);
+                    ps.setObject(2, itemRating);
+                    ps.setInt(3, listId);
+                    ps.setInt(4, mediaId);
+                    ps.executeUpdate();
+                }
+                return GSON.toJson(Map.of("success", true));
+            } catch (Exception e) {
+                res.status(500);
+                return GSON.toJson(Map.of("error", e.getMessage()));
+            }
+        });
+
         Spark.put("/api/lists/:id/reorder", (req, res) -> {
             res.type("application/json");
             int listId;
@@ -297,9 +331,17 @@ public class ListRoutes {
                 };
                 int starCount = m.getRating() != null ? Math.max(0, Math.min(5, (int) Math.round(m.getRating()))) : 0;
                 String stars = starCount > 0 ? "★".repeat(starCount) : "—";
+                // Item-level rating overrides media rating if present
+                String itemStars = stars;
+                if (item.getItemRating() != null) {
+                    int isc = Math.max(0, Math.min(5, (int) Math.round(item.getItemRating())));
+                    itemStars = isc > 0 ? "★".repeat(isc) : "—";
+                }
                 String coverHtml = m.getCoverUrl() != null
-                    ? "<img src=\"" + escapeHtml(m.getCoverUrl()) + "\" style=\"width:60px;height:90px;object-fit:cover;border-radius:6px;\">"
-                    : "<div style=\"width:60px;height:90px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;\">📄</div>";
+                    ? "<img src=\"" + escapeHtml(m.getCoverUrl()) + "\" style=\"width:72px;height:108px;object-fit:cover;border-radius:8px;flex-shrink:0;\">"
+                    : "<div style=\"width:72px;height:108px;background:#eee;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;\">📄</div>";
+                String noteHtml = item.getNote() != null && !item.getNote().isBlank()
+                    ? "<div class=\"item-note\">💬 " + escapeHtml(item.getNote()) + "</div>" : "";
                 items.append(String.format("""
                     <div class="item">
                       <div class="item-num">%d</div>
@@ -312,6 +354,7 @@ public class ListRoutes {
                           <span class="stars">%s</span>
                         </div>
                         %s
+                        %s
                       </div>
                     </div>
                     """,
@@ -321,8 +364,9 @@ public class ListRoutes {
                     escapeHtml(m.getType()),
                     escapeHtml(typeCn),
                     m.getYear() != null ? "<span>" + m.getYear() + "年</span>" : "",
-                    stars,
-                    m.getGenre() != null ? "<div class=\"item-genre\">" + escapeHtml(m.getGenre()) + "</div>" : ""
+                    itemStars,
+                    m.getGenre() != null ? "<div class=\"item-genre\">" + escapeHtml(m.getGenre()) + "</div>" : "",
+                    noteHtml
                 ));
             }
 
@@ -335,17 +379,18 @@ public class ListRoutes {
                   <title>片单：%s</title>
                   <style>
                     * { box-sizing: border-box; margin: 0; padding: 0; }
-                    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #fff; color: #1a1a2e; padding: 40px; max-width: 820px; margin: 0 auto; }
+                    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #fff; color: #1a1a2e; padding: 40px; max-width: 860px; margin: 0 auto; }
                     h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
                     .desc { color: #666; margin-bottom: 24px; font-size: 15px; }
                     .count { color: #6c63ff; font-size: 13px; margin-bottom: 20px; font-weight: 600; }
-                    .item { display: flex; align-items: flex-start; gap: 16px; padding: 16px 0; border-bottom: 1px solid #eee; }
+                    .item { display: flex; align-items: flex-start; gap: 16px; padding: 20px 0; border-bottom: 1px solid #eee; }
                     .item:last-child { border-bottom: none; }
-                    .item-num { width: 28px; font-size: 18px; font-weight: 700; color: #6c63ff; flex-shrink: 0; padding-top: 8px; }
-                    .item-info { flex: 1; }
-                    .item-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
-                    .item-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: #666; }
+                    .item-num { width: 32px; font-size: 20px; font-weight: 700; color: #6c63ff; flex-shrink: 0; padding-top: 4px; }
+                    .item-info { flex: 1; min-width: 0; }
+                    .item-title { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+                    .item-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: #666; margin-bottom: 4px; }
                     .item-genre { font-size: 13px; color: #999; margin-top: 4px; }
+                    .item-note { font-size: 13px; color: #555; margin-top: 8px; font-style: italic; background: #f8f9fa; border-left: 3px solid #6c63ff; padding: 6px 10px; border-radius: 0 6px 6px 0; }
                     .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
                     .badge-movie { background: #fdecea; color: #e74c3c; }
                     .badge-tv    { background: #e3f2fd; color: #3498db; }
@@ -389,7 +434,7 @@ public class ListRoutes {
     private static List<MediaList.MediaListItem> fetchItems(Connection conn, int listId) throws SQLException {
         List<MediaList.MediaListItem> items = new ArrayList<>();
         String sql = """
-            SELECT li.media_id, li.sort_order, m.*
+            SELECT li.media_id, li.sort_order, li.note, li.item_rating, m.*
             FROM list_items li
             JOIN media m ON li.media_id = m.id
             WHERE li.list_id = ?
@@ -402,6 +447,9 @@ public class ListRoutes {
                 MediaList.MediaListItem item = new MediaList.MediaListItem();
                 item.setMediaId(rs.getInt("media_id"));
                 item.setSortOrder(rs.getInt("sort_order"));
+                item.setNote(rs.getString("note"));
+                double ir = rs.getDouble("item_rating");
+                item.setItemRating(rs.wasNull() ? null : ir);
                 item.setMedia(MediaRoutes.mapRow(rs));
                 items.add(item);
             }
