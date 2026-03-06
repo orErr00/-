@@ -295,7 +295,8 @@ public class ListRoutes {
                     case "game"  -> "游戏";
                     default      -> m.getType();
                 };
-                String stars = m.getRating() != null ? "★".repeat((int) Math.round(m.getRating())) : "—";
+                int starCount = m.getRating() != null ? Math.max(0, Math.min(5, (int) Math.round(m.getRating()))) : 0;
+                String stars = starCount > 0 ? "★".repeat(starCount) : "—";
                 String coverHtml = m.getCoverUrl() != null
                     ? "<img src=\"" + escapeHtml(m.getCoverUrl()) + "\" style=\"width:60px;height:90px;object-fit:cover;border-radius:6px;\">"
                     : "<div style=\"width:60px;height:90px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;\">📄</div>";

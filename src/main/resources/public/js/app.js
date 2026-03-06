@@ -18,6 +18,7 @@ let step2Tags = [];
 const AUTOCOMPLETE_HIDE_DELAY = 150; // ms to wait before hiding dropdown (allows click events to fire)
 let step2ActiveStyle = 'simple';
 let step2PreviewActive = false;
+let currentListName = ''; // cached for export
 let dashboardModules = loadDashboardModules();
 
 // ===== Helpers =====
@@ -420,11 +421,11 @@ function renderModule(moduleId, data) {
 
 function openDashboardConfig() {
   const renderConfigRows = () => dashboardModules.map((mod, idx) => `
-    <div class="module-config-row" draggable="true" data-idx="${idx}">
+    <div class="module-config-row" draggable="true" data-idx="${idx}" data-id="${escHtml(mod.id)}">
       <span class="mod-handle">⠿</span>
       <span class="mod-label">${escHtml(mod.label)}</span>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-        <input type="checkbox" ${mod.visible ? 'checked' : ''} onchange="dashboardModules[${idx}].visible=this.checked">
+        <input type="checkbox" class="mod-visible-cb" data-id="${escHtml(mod.id)}" ${mod.visible ? 'checked' : ''}>
         <span style="font-size:13px;color:var(--text-secondary);">显示</span>
       </label>
     </div>`).join('');
@@ -439,9 +440,18 @@ function openDashboardConfig() {
     </div>
   `);
 
-  // Setup drag-and-drop for module config rows
+  // Event delegation for visibility checkboxes
   const container = document.getElementById('moduleConfigList');
   if (!container) return;
+
+  container.addEventListener('change', (e) => {
+    if (e.target.classList.contains('mod-visible-cb')) {
+      const modId = e.target.dataset.id;
+      const mod = dashboardModules.find(m => m.id === modId);
+      if (mod) mod.visible = e.target.checked;
+    }
+  });
+
   let dragging = null;
 
   container.addEventListener('dragstart', (e) => {
@@ -1180,6 +1190,7 @@ async function submitCreateList(e) {
 // ===== List Detail =====
 async function renderListDetail(id) {
   const list = await apiGet(`/lists/${id}`);
+  currentListName = list.name || '片单';
   const items = list.items || [];
 
   document.getElementById('app').innerHTML = `
@@ -1445,13 +1456,13 @@ async function exportListImage(listId) {
     const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#f8f9fa';
     const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: bgColor });
     const link = document.createElement('a');
-    const list = await apiGet(`/lists/${listId}`);
-    link.download = (list.name || 'playlist') + '.png';
+    link.download = (currentListName || 'playlist') + '.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
     toast('图片已导出！', 'success');
   } catch (e) {
-    toast('图片导出失败：' + e.message, 'error');
+    console.error('html2canvas error:', e);
+    toast('图片导出失败，请检查图片链接或重试', 'error');
   }
 }
 
