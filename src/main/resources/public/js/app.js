@@ -18,6 +18,7 @@ let step2Tags = [];
 const AUTOCOMPLETE_HIDE_DELAY = 150; // ms to wait before hiding dropdown (allows click events to fire)
 let step2ActiveStyle = 'simple';
 let step2PreviewActive = false;
+let dashboardModules = loadDashboardModules();
 
 // ===== Helpers =====
 function typeLabel(type) {
@@ -115,12 +116,33 @@ const savedTheme = localStorage.getItem('theme') || 'light';
 document.body.classList.toggle('dark-mode', savedTheme === 'dark');
 updateThemeIcons(savedTheme);
 
+// Apply saved color theme on startup
+const savedColorTheme = localStorage.getItem('color_theme') || 'default';
+if (savedColorTheme !== 'default') {
+  document.body.classList.add('theme-' + savedColorTheme);
+}
+updateColorThemeDots(savedColorTheme);
+
 function updateThemeIcons(theme) {
   const icon = theme === 'dark' ? '☀️' : '🌙';
   const el1 = document.getElementById('themeIcon');
   const el2 = document.getElementById('themeToggleMobile');
   if (el1) el1.textContent = icon;
   if (el2) el2.textContent = icon;
+}
+
+function updateColorThemeDots(name) {
+  ['default', 'warm', 'green', 'rose'].forEach(t => {
+    const dot = document.getElementById('dot-' + t);
+    if (dot) dot.classList.toggle('active', t === name);
+  });
+}
+
+function setColorTheme(name) {
+  document.body.classList.remove('theme-warm', 'theme-green', 'theme-rose');
+  if (name !== 'default') document.body.classList.add('theme-' + name);
+  localStorage.setItem('color_theme', name);
+  updateColorThemeDots(name);
 }
 
 function toggleTheme() {
@@ -279,6 +301,24 @@ async function render() {
   }
 }
 
+// ===== Dashboard Modules =====
+function loadDashboardModules() {
+  try {
+    const saved = localStorage.getItem('dashboard_modules');
+    if (saved) return JSON.parse(saved);
+  } catch (_) { /* ignore */ }
+  return [
+    { id: 'stats',  label: '数据统计',    visible: true },
+    { id: 'recent', label: '最近添加',    visible: true },
+    { id: 'random', label: '随机推荐',    visible: true },
+    { id: 'lists',  label: '我的片单预览', visible: true }
+  ];
+}
+
+function saveDashboardModules() {
+  localStorage.setItem('dashboard_modules', JSON.stringify(dashboardModules));
+}
+
 // ===== Dashboard =====
 async function renderDashboard() {
   const [media, lists, tags] = await Promise.all([
@@ -291,35 +331,158 @@ async function renderDashboard() {
 
   const counts = { movie: 0, tv: 0, book: 0, game: 0 };
   media.forEach(m => { if (counts[m.type] !== undefined) counts[m.type]++; });
-  const recent = media.slice(0, 6);
+
+  const modulesHtml = dashboardModules
+    .filter(mod => mod.visible)
+    .map(mod => `<div class="dashboard-module">${renderModule(mod.id, { media, lists, tags, counts })}</div>`)
+    .join('');
 
   document.getElementById('app').innerHTML = `
     <div class="page-header">
       <h1 class="page-title">🏠 主页</h1>
-      <button class="btn btn-primary" onclick="openAddMediaStep1()">
-        ➕ 添加媒体
-      </button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="openDashboardConfig()">⚙️ 配置模块</button>
+        <button class="btn btn-primary" onclick="openAddMediaStep1()">➕ 添加媒体</button>
+      </div>
     </div>
-    <div class="stats-grid">
-      ${statCard('🎥', counts.movie, '电影', '#/movies')}
-      ${statCard('📺', counts.tv, '电视剧', '#/tv')}
-      ${statCard('📚', counts.book, '书籍', '#/books')}
-      ${statCard('🎮', counts.game, '游戏', '#/games')}
-      ${statCard('📋', lists.length, '片单', '#/lists')}
-      ${statCard('🏷️', tags.length, '标签', '#/tags')}
-    </div>
-    ${recent.length ? `
-    <h2 class="section-title">最近添加</h2>
-    <div class="media-grid">
-      ${recent.map(m => mediaCard(m)).join('')}
-    </div>
-    ` : `<div class="empty-state">
-      <div class="empty-state-icon">📽️</div>
-      <div class="empty-state-title">您的媒体库为空</div>
-      <div class="empty-state-text">开始添加您的第一部电影、书籍、游戏或电视剧。</div>
-      <button class="btn btn-primary" onclick="openAddMediaStep1()">➕ 添加第一条记录</button>
+    ${modulesHtml || `<div class="empty-state">
+      <div class="empty-state-icon">⚙️</div>
+      <div class="empty-state-title">所有模块已隐藏</div>
+      <button class="btn btn-secondary" onclick="openDashboardConfig()">配置模块</button>
     </div>`}
   `;
+}
+
+function renderModule(moduleId, data) {
+  const { media, lists, counts } = data;
+  if (moduleId === 'stats') {
+    return `
+      <h2 class="section-title">数据统计</h2>
+      <div class="stats-grid">
+        ${statCard('🎥', counts.movie, '电影', '#/movies')}
+        ${statCard('📺', counts.tv, '电视剧', '#/tv')}
+        ${statCard('📚', counts.book, '书籍', '#/books')}
+        ${statCard('🎮', counts.game, '游戏', '#/games')}
+        ${statCard('📋', lists.length, '片单', '#/lists')}
+        ${statCard('🏷️', data.tags.length, '标签', '#/tags')}
+      </div>`;
+  }
+  if (moduleId === 'recent') {
+    const recent = media.slice(0, 6);
+    return `
+      <h2 class="section-title">最近添加</h2>
+      ${recent.length
+        ? `<div class="media-grid">${recent.map(m => mediaCard(m)).join('')}</div>`
+        : `<div class="empty-state">
+            <div class="empty-state-icon">📽️</div>
+            <div class="empty-state-title">您的媒体库为空</div>
+            <button class="btn btn-primary" onclick="openAddMediaStep1()">➕ 添加第一条记录</button>
+          </div>`}`;
+  }
+  if (moduleId === 'random') {
+    if (!media.length) return `<h2 class="section-title">随机推荐</h2><p style="color:var(--text-secondary)">暂无媒体可推荐。</p>`;
+    const m = media[Math.floor(Math.random() * media.length)];
+    const typePlaceholder = { movie: '🎥', tv: '📺', book: '📚', game: '🎮' };
+    const cover = m.coverUrl
+      ? `<img class="random-spotlight-cover" src="${escHtml(m.coverUrl)}" alt="${escHtml(m.title)}" onerror="this.outerHTML='<div class=\\'random-spotlight-placeholder\\'>${typePlaceholder[m.type] || '📄'}</div>'">`
+      : `<div class="random-spotlight-placeholder">${typePlaceholder[m.type] || '📄'}</div>`;
+    return `
+      <h2 class="section-title">随机推荐</h2>
+      <div class="random-spotlight" onclick="showMediaDetail(${m.id})" style="cursor:pointer;">
+        ${cover}
+        <div class="random-spotlight-info">
+          <div class="random-spotlight-title">${escHtml(m.title)}</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+            <span class="badge badge-${m.type}">${typeLabel(m.type)}</span>
+            ${m.year ? `<span style="color:var(--text-secondary);font-size:13px;">${m.year}</span>` : ''}
+          </div>
+          ${m.rating ? `<div class="stars">${renderStars(m.rating)}</div>` : ''}
+          ${m.genre ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;">${escHtml(m.genre)}</div>` : ''}
+          ${m.description ? `<div style="font-size:13px;margin-top:8px;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(m.description)}</div>` : ''}
+        </div>
+      </div>`;
+  }
+  if (moduleId === 'lists') {
+    const preview = lists.slice(0, 4);
+    return `
+      <h2 class="section-title">我的片单预览</h2>
+      ${preview.length
+        ? `<div class="lists-preview-grid">${preview.map(l => `
+            <div class="list-preview-card" onclick="navigate('/lists/${l.id}')">
+              <div class="list-preview-card-name">📋 ${escHtml(l.name)}</div>
+              ${l.description ? `<div class="list-preview-card-desc">${escHtml(l.description)}</div>` : ''}
+            </div>`).join('')}</div>
+          <div style="margin-top:10px;"><a href="#/lists" style="font-size:13px;color:var(--accent);">查看全部片单 →</a></div>`
+        : `<p style="color:var(--text-secondary);">暂无片单。<a href="#/lists" style="color:var(--accent);">创建片单</a></p>`}`;
+  }
+  return '';
+}
+
+function openDashboardConfig() {
+  const renderConfigRows = () => dashboardModules.map((mod, idx) => `
+    <div class="module-config-row" draggable="true" data-idx="${idx}">
+      <span class="mod-handle">⠿</span>
+      <span class="mod-label">${escHtml(mod.label)}</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" ${mod.visible ? 'checked' : ''} onchange="dashboardModules[${idx}].visible=this.checked">
+        <span style="font-size:13px;color:var(--text-secondary);">显示</span>
+      </label>
+    </div>`).join('');
+
+  openModal(`
+    <h2 style="margin-bottom:16px;font-size:20px;font-weight:700;">⚙️ 配置仪表盘模块</h2>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">拖拽行可调整顺序，勾选框控制显示。</p>
+    <div id="moduleConfigList">${renderConfigRows()}</div>
+    <div class="form-actions" style="margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveDashboardModules();closeModal();renderDashboard()">确定</button>
+    </div>
+  `);
+
+  // Setup drag-and-drop for module config rows
+  const container = document.getElementById('moduleConfigList');
+  if (!container) return;
+  let dragging = null;
+
+  container.addEventListener('dragstart', (e) => {
+    dragging = e.target.closest('.module-config-row');
+    if (dragging) {
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => { if (dragging) dragging.style.opacity = '0.4'; }, 0);
+    }
+  });
+
+  container.addEventListener('dragend', () => {
+    if (dragging) dragging.style.opacity = '';
+    container.querySelectorAll('.module-config-row').forEach(r => r.classList.remove('drag-over'));
+    dragging = null;
+  });
+
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.module-config-row');
+    container.querySelectorAll('.module-config-row').forEach(r => r.classList.remove('drag-over'));
+    if (target && target !== dragging) target.classList.add('drag-over');
+  });
+
+  container.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const target = e.target.closest('.module-config-row');
+    container.querySelectorAll('.module-config-row').forEach(r => r.classList.remove('drag-over'));
+    if (!target || !dragging || target === dragging) return;
+
+    const rows = [...container.querySelectorAll('.module-config-row')];
+    const fromIdx = rows.indexOf(dragging);
+    const toIdx = rows.indexOf(target);
+
+    // Reorder dashboardModules array
+    const [moved] = dashboardModules.splice(fromIdx, 1);
+    dashboardModules.splice(toIdx, 0, moved);
+
+    // Re-render config rows; drag events remain bound to container, inline onchange handlers are re-created
+    container.innerHTML = renderConfigRows();
+  });
 }
 
 function statCard(icon, number, label, href) {
@@ -1029,12 +1192,14 @@ async function renderListDetail(id) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-secondary btn-sm" onclick="openAddToListModal(${id})">➕ 添加条目</button>
         <button class="btn btn-secondary btn-sm" data-id="${id}" data-name="${escHtml(list.name)}" data-desc="${escHtml(list.description || '')}" onclick="openEditListModalFromBtn(this)">✏️ 编辑片单</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportListImage(${id})">📷 导出图片</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportListPDF(${id})">📄 导出PDF</button>
         <button class="btn btn-danger btn-sm" data-id="${id}" data-name="${escHtml(list.name)}" onclick="deleteListFromBtn(this)">🗑️ 删除</button>
       </div>
     </div>
     ${items.length ? `
     <p class="text-muted mb-1" style="font-size:13px;">拖拽条目以重新排序</p>
-    <div class="list-items-container" id="listItems">
+    <div class="list-items-container" id="listItems" data-export="listExportArea">
       ${items.map((item, idx) => listItemRow(item, id, idx)).join('')}
     </div>` : emptyState('📭', '空片单', '向此片单添加媒体内容！')}
   `;
@@ -1269,6 +1434,29 @@ async function deleteTag(id, name) {
 
 function deleteTagFromBtn(btn) {
   deleteTag(btn.dataset.id, btn.dataset.name);
+}
+
+// ===== List Export =====
+async function exportListImage(listId) {
+  const el = document.getElementById('listItems');
+  if (!el) { toast('没有可导出的内容', 'warning'); return; }
+  toast('正在生成图片…', 'info');
+  try {
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim() || '#f8f9fa';
+    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: bgColor });
+    const link = document.createElement('a');
+    const list = await apiGet(`/lists/${listId}`);
+    link.download = (list.name || 'playlist') + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    toast('图片已导出！', 'success');
+  } catch (e) {
+    toast('图片导出失败：' + e.message, 'error');
+  }
+}
+
+function exportListPDF(listId) {
+  window.open(`/api/lists/${listId}/export`, '_blank');
 }
 
 // Initial render

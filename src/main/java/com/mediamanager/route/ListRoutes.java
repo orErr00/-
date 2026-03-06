@@ -261,6 +261,128 @@ public class ListRoutes {
                 return GSON.toJson(Map.of("error", e.getMessage()));
             }
         });
+
+        Spark.get("/api/lists/:id/export", (req, res) -> {
+            int id;
+            try { id = Integer.parseInt(req.params("id")); }
+            catch (NumberFormatException e) { res.status(400); return "Invalid id"; }
+
+            MediaList list;
+            try (Connection conn = DatabaseManager.getConnection()) {
+                try (PreparedStatement ps = conn.prepareStatement("SELECT * FROM lists WHERE id = ?")) {
+                    ps.setInt(1, id);
+                    ResultSet rs = ps.executeQuery();
+                    if (!rs.next()) { res.status(404); return "Not found"; }
+                    list = mapRow(rs, false);
+                    list.setItems(fetchItems(conn, id));
+                }
+            } catch (SQLException e) {
+                res.status(500);
+                return "Error: " + e.getMessage();
+            }
+
+            res.type("text/html;charset=UTF-8");
+
+            StringBuilder items = new StringBuilder();
+            int idx = 0;
+            for (var item : list.getItems()) {
+                idx++;
+                var m = item.getMedia();
+                String typeCn = switch (m.getType()) {
+                    case "movie" -> "电影";
+                    case "tv"    -> "电视剧";
+                    case "book"  -> "书籍";
+                    case "game"  -> "游戏";
+                    default      -> m.getType();
+                };
+                String stars = m.getRating() != null ? "★".repeat((int) Math.round(m.getRating())) : "—";
+                String coverHtml = m.getCoverUrl() != null
+                    ? "<img src=\"" + escapeHtml(m.getCoverUrl()) + "\" style=\"width:60px;height:90px;object-fit:cover;border-radius:6px;\">"
+                    : "<div style=\"width:60px;height:90px;background:#eee;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;\">📄</div>";
+                items.append(String.format("""
+                    <div class="item">
+                      <div class="item-num">%d</div>
+                      %s
+                      <div class="item-info">
+                        <div class="item-title">%s</div>
+                        <div class="item-meta">
+                          <span class="badge badge-%s">%s</span>
+                          %s
+                          <span class="stars">%s</span>
+                        </div>
+                        %s
+                      </div>
+                    </div>
+                    """,
+                    idx,
+                    coverHtml,
+                    escapeHtml(m.getTitle()),
+                    escapeHtml(m.getType()),
+                    escapeHtml(typeCn),
+                    m.getYear() != null ? "<span>" + m.getYear() + "年</span>" : "",
+                    stars,
+                    m.getGenre() != null ? "<div class=\"item-genre\">" + escapeHtml(m.getGenre()) + "</div>" : ""
+                ));
+            }
+
+            return String.format("""
+                <!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+                  <title>片单：%s</title>
+                  <style>
+                    * { box-sizing: border-box; margin: 0; padding: 0; }
+                    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #fff; color: #1a1a2e; padding: 40px; max-width: 820px; margin: 0 auto; }
+                    h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+                    .desc { color: #666; margin-bottom: 24px; font-size: 15px; }
+                    .count { color: #6c63ff; font-size: 13px; margin-bottom: 20px; font-weight: 600; }
+                    .item { display: flex; align-items: flex-start; gap: 16px; padding: 16px 0; border-bottom: 1px solid #eee; }
+                    .item:last-child { border-bottom: none; }
+                    .item-num { width: 28px; font-size: 18px; font-weight: 700; color: #6c63ff; flex-shrink: 0; padding-top: 8px; }
+                    .item-info { flex: 1; }
+                    .item-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+                    .item-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: #666; }
+                    .item-genre { font-size: 13px; color: #999; margin-top: 4px; }
+                    .badge { padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+                    .badge-movie { background: #fdecea; color: #e74c3c; }
+                    .badge-tv    { background: #e3f2fd; color: #3498db; }
+                    .badge-book  { background: #e8f5e9; color: #27ae60; }
+                    .badge-game  { background: #f3e5f5; color: #9b59b6; }
+                    .stars { color: #f39c12; }
+                    .print-btn { display: inline-block; margin-bottom: 24px; padding: 10px 20px; background: #6c63ff; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+                    .print-btn:hover { background: #5a52d5; }
+                    .footer { margin-top: 32px; color: #999; font-size: 12px; border-top: 1px solid #eee; padding-top: 16px; }
+                    @media print { .no-print { display: none !important; } .item { page-break-inside: avoid; } }
+                  </style>
+                </head>
+                <body>
+                  <button class="print-btn no-print" onclick="window.print()">🖨️ 打印 / 导出PDF</button>
+                  <h1>📋 %s</h1>
+                  %s
+                  <div class="count">共 %d 条</div>
+                  <div>%s</div>
+                  <div class="footer">由 媒体库 生成 · MediaVault</div>
+                </body>
+                </html>
+                """,
+                escapeHtml(list.getName()),
+                escapeHtml(list.getName()),
+                list.getDescription() != null ? "<div class=\"desc\">" + escapeHtml(list.getDescription()) + "</div>" : "",
+                list.getItems().size(),
+                items.toString()
+            );
+        });
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private static List<MediaList.MediaListItem> fetchItems(Connection conn, int listId) throws SQLException {
