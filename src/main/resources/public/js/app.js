@@ -16,6 +16,7 @@ let dragListId = null;
 let draftMedia = null;
 let step2Tags = [];
 const AUTOCOMPLETE_HIDE_DELAY = 150; // ms to wait before hiding dropdown (allows click events to fire)
+const EXPORT_IFRAME_TIMEOUT_MS = 12000; // ms to wait for export iframe to load
 let step2ActiveStyle = 'simple';
 let step2PreviewActive = false;
 let currentListName = ''; // cached for export
@@ -1079,7 +1080,10 @@ function selectStyle(style) {
   });
   const preview = document.getElementById('mdPreview');
   if (preview) preview.className = `md-preview style-${style}`;
-  if (draftMedia) draftMedia.reviewStyle = style;
+  if (draftMedia) {
+    draftMedia.reviewStyle = style;
+    localStorage.setItem('mediavault_draft', JSON.stringify(draftMedia));
+  }
 }
 
 function renderTagBubbles() {
@@ -1625,7 +1629,7 @@ async function exportListImage(listId) {
       iframe.onload = resolve;
       iframe.onerror = () => reject(new Error('iframe load failed'));
       iframe.src = `/api/lists/${listId}/export?embed=1`;
-      setTimeout(() => reject(new Error('timeout')), 12000);
+      setTimeout(() => reject(new Error('timeout')), EXPORT_IFRAME_TIMEOUT_MS);
     });
     await new Promise(r => setTimeout(r, 800));
     const doc = iframe.contentDocument;

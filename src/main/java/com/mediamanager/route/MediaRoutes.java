@@ -25,6 +25,8 @@ public class MediaRoutes {
         System.getenv("OMDB_API_KEY") != null ? System.getenv("OMDB_API_KEY") : "trilogy";
     private static final String RAWG_API_KEY =
         System.getenv("RAWG_API_KEY") != null ? System.getenv("RAWG_API_KEY") : "";
+    private static final int DOUBAN_CONNECT_TIMEOUT_MS = 6000;
+    private static final int DOUBAN_READ_TIMEOUT_MS = 6000;
 
     public static void register() {
         Spark.get("/api/media", (req, res) -> {
@@ -273,8 +275,8 @@ public class MediaRoutes {
 
             var conn = (HttpURLConnection) new URI(searchUrl).toURL().openConnection();
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(6000);
+            conn.setConnectTimeout(DOUBAN_CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(DOUBAN_READ_TIMEOUT_MS);
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9");
 
