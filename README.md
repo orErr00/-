@@ -1,85 +1,46 @@
-# 🎬 MediaVault — Personal Media Manager
+# MediaVault + Article Layout & Export Module
+
+A personal media management web application with an integrated article layout and export module.
+
+## Modules
+
+### 🎬 MediaVault — Personal Media Manager
 
 A full-stack personal media management web application for tracking movies, TV shows, books, and games.
 
-## Tech Stack
+**Tech Stack:** Java 17 + Spark Java · SQLite · Gson · Jsoup · Maven · Pure HTML/CSS/JS
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Java 17 + Spark Java 2.9.4 |
-| Database | SQLite (sqlite-jdbc 3.45.3.0) |
-| JSON | Gson 2.10.1 |
-| Web scraping | Jsoup 1.17.2 |
-| Build | Maven |
-| Frontend | Pure HTML + CSS + JavaScript (no framework) |
+### 📝 Article Layout & Export Module
 
-## Features
+A React-based article layout editor with real-time preview and export capabilities, similar to Word + Obsidian + 小红书长文卡片生成器.
 
-- **Dashboard** with stats and recently added items
-- **Media tracking** for movies, TV shows, books, and games
-- **Auto-fetch** metadata from OpenLibrary (books), OMDB (movies/TV), RAWG (games)
-- **Star ratings** and personal reviews
-- **Custom lists** with drag-and-drop reordering
-- **Tags** for flexible organization and filtering
-- **Dark/Light mode** toggle
-- **Responsive** design for mobile and desktop
+**Tech Stack:** React 19 + Vite · markdown-it · html2canvas · jsPDF
+
+**Features:**
+- Two editing modes: Markdown and Plain Text
+- Four built-in themes: light, reading, xiaohongshu, dark
+- Typography controls: font, size, line height, letter spacing, paragraph spacing, text indent, content width
+- Huiwen Mincho font support via @font-face
+- Real-time reading info (word count + estimated reading time)
+- Export to PNG and PDF
+- Long-image splitting (3:4, 2:3, 9:16) with smart block-element cut points
 
 ## Quick Start
 
-```bash
-# Build
-mvn package -q
+### MediaVault (Java backend)
 
-# Run
+```bash
+mvn package -q
 java -jar target/media-manager-1.0.0-jar-with-dependencies.jar
 ```
 
-Then open [http://localhost:8080](http://localhost:8080).
+Open [http://localhost:8080](http://localhost:8080).
 
-The SQLite database (`media.db`) is created automatically in the current directory.
+### Article Layout Editor (React frontend)
 
-## API Endpoints
-
-### Media
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/media?type=&tag=&search=` | List media (filterable) |
-| POST | `/api/media` | Create media |
-| GET | `/api/media/:id` | Get single item |
-| PUT | `/api/media/:id` | Update item |
-| DELETE | `/api/media/:id` | Delete item |
-| POST | `/api/fetch` | Auto-fetch metadata |
-
-### Lists
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/lists` | All lists |
-| POST | `/api/lists` | Create list |
-| GET | `/api/lists/:id` | List with items |
-| PUT | `/api/lists/:id` | Update list |
-| DELETE | `/api/lists/:id` | Delete list |
-| POST | `/api/lists/:id/items` | Add item to list |
-| DELETE | `/api/lists/:id/items/:mediaId` | Remove item |
-| PUT | `/api/lists/:id/reorder` | Reorder items |
-
-### Tags
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/tags` | All tags |
-| DELETE | `/api/tags/:id` | Delete tag |
-
-## Project Structure
-
+```bash
+npm install
+npm run dev
 ```
-src/
-├── main/
-│   ├── java/com/mediamanager/
-│   │   ├── App.java              # Entry point
-│   │   ├── DatabaseManager.java  # SQLite setup
-│   │   ├── model/                # Data models
-│   │   └── route/                # API route handlers
-│   └── resources/public/         # Frontend (HTML/CSS/JS)
-└── test/
-    └── java/com/mediamanager/
-        └── AppTest.java
-```
+
+Open [http://localhost:5173](http://localhost:5173).

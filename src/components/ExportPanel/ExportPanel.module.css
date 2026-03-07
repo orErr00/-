@@ -1,0 +1,118 @@
+.panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  margin: 0;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  color: #666;
+}
+
+.btn {
+  padding: 10px 0;
+  border: none;
+  border-radius: 8px;
+  background: #4f8cff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btn:hover:not(:disabled) {
+  background: #3a78e8;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  background: #6c757d;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.btnSplit {
+  background: #28a745;
+}
+
+.btnSplit:hover:not(:disabled) {
+  background: #218838;
+}
+
+.divider {
+  height: 1px;
+  background: #eee;
+  margin: 4px 0;
+}
+
+.ratioGroup {
+  display: flex;
+  gap: 6px;
+}
+
+.ratioBtn {
+  flex: 1;
+  padding: 7px 4px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.ratioBtn:hover:not(:disabled) {
+  border-color: #4f8cff;
+  color: #4f8cff;
+}
+
+.ratioBtnActive {
+  border-color: #4f8cff !important;
+  color: #4f8cff !important;
+  background: #eef4ff;
+  font-weight: 700;
+}
+
+.status {
+  font-size: 12px;
+  color: #28a745;
+  text-align: center;
+  padding: 6px;
+  border-radius: 6px;
+  background: #f0fff4;
+}
+
+.statusLoading {
+  color: #888;
+  background: #f5f5f5;
+}
