@@ -1,0 +1,89 @@
+.root {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: #f0f0f0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebarHeader {
+  padding: 14px 12px 10px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.tabBar {
+  display: flex;
+  border-bottom: 1px solid #eee;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: #888;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.tab:hover {
+  color: #444;
+}
+
+.tabActive {
+  color: #4f8cff;
+  border-bottom-color: #4f8cff;
+  font-weight: 600;
+}
+
+.sidebarContent {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Editor pane */
+.editorPane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+/* Preview pane */
+.previewPane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #e5e5e5;
+  overflow: hidden;
+}
+
+.paneHeader {
+  padding: 10px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  flex-shrink: 0;
+}
