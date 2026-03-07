@@ -9,7 +9,7 @@ function ModeSwitcher() {
     <header className={styles.header}>
       <div className={styles.brand}>
         <span className={styles.brandIcon}>📄</span>
-        <span className={styles.brandName}>排版导出系统</span>
+        <span className={styles.brandName}>高级排版编辑器</span>
       </div>
       <nav className={styles.nav}>
         <button className={styles.backBtn} onClick={handleBackToMedia}>

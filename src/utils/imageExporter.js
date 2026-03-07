@@ -1,8 +1,8 @@
 /**
  * Export content as a PNG image using a temporary off-screen element.
- * Falls back to a basic canvas approach if html2canvas is not available.
  */
 
+import html2canvas from 'html2canvas'
 import { renderMarkdown } from './markdownParser'
 
 const STYLE_MAP = {
@@ -25,26 +25,12 @@ export async function exportAsImage(content, activeStyle) {
   document.body.appendChild(container)
 
   try {
-    if (typeof window.html2canvas === 'function') {
-      const canvas = await window.html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: activeStyle === 'cinematic' ? '#1a1a2e' : '#ffffff',
-      })
-      downloadCanvas(canvas)
-    } else {
-      const { default: html2canvas } = await import('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.esm.js').catch(() => ({ default: null }))
-      if (html2canvas) {
-        const canvas = await html2canvas(container, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: activeStyle === 'cinematic' ? '#1a1a2e' : '#ffffff',
-        })
-        downloadCanvas(canvas)
-      } else {
-        alert('图片导出功能暂不可用，请使用导出 PDF 功能')
-      }
-    }
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: activeStyle === 'cinematic' ? '#1a1a2e' : '#ffffff',
+    })
+    downloadCanvas(canvas)
   } finally {
     document.body.removeChild(container)
   }
