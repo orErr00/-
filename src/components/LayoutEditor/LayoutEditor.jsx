@@ -8,10 +8,6 @@ import styles from './LayoutEditor.module.css'
 function LayoutEditor({ content, onContentChange, activeStyle, onStyleChange }) {
   const [showPreview, setShowPreview] = useState(false)
 
-  const togglePreview = () => {
-    setShowPreview(prev => !prev)
-  }
-
   return (
     <div className={styles.container}>
       <div className={styles.editorLayout}>
@@ -33,7 +29,7 @@ function LayoutEditor({ content, onContentChange, activeStyle, onStyleChange }) 
             </button>
             <button
               className={`${styles.toggleBtn} ${showPreview ? styles.active : ''}`}
-              onClick={togglePreview}
+              onClick={() => setShowPreview(true)}
             >
               👁 预览
             </button>
