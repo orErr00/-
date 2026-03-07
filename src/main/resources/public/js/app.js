@@ -1665,6 +1665,7 @@ async function renderFormatPage() {
     <div class="editor-page">
       <div class="page-header">
         <h1 class="page-title">📄 排版与导出</h1>
+        <a href="/layout/" class="btn btn-primary" style="margin-left:auto;">✏️ 打开高级排版编辑器</a>
       </div>
       <div class="editor-layout">
         <div class="editor-pane">

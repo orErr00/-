@@ -5,3 +5,7 @@ target/
 .idea/
 *.iml
 .DS_Store
+node_modules/
+dist/
+package-lock.json
+src/main/resources/public/layout/

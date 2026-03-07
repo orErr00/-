@@ -1,0 +1,50 @@
+.panel {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #1a1a2e;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.card {
+  padding: 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.card:hover {
+  border-color: #6c63ff;
+}
+
+.card.active {
+  border-color: #6c63ff;
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.cardName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.cardDesc {
+  font-size: 11px;
+  color: #6c757d;
+  margin-top: 2px;
+}

@@ -1,0 +1,56 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+  flex-wrap: wrap;
+}
+
+.toolbarBtn {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #4a4a6a;
+  transition: all 0.2s ease;
+}
+
+.toolbarBtn:hover {
+  background: rgba(108, 99, 255, 0.1);
+  color: #6c63ff;
+}
+
+.toolbarSep {
+  width: 1px;
+  height: 20px;
+  background: #e0e0e0;
+  margin: 0 4px;
+}
+
+.textarea {
+  flex: 1;
+  min-height: 500px;
+  padding: 20px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #1a1a2e;
+  background: transparent;
+}
+
+.textarea::placeholder {
+  color: #aaa;
+}
