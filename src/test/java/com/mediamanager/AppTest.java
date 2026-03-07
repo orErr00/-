@@ -61,4 +61,12 @@ public class AppTest {
             assertEquals("Test Movie", rs.getString("title"));
         }
     }
+
+    @Test
+    public void testLayoutEditorStaticPageExists() {
+        assertNotNull(
+            "Advanced layout editor build should be available under /public/layout/index.html",
+            App.class.getResource("/public/layout/index.html")
+        );
+    }
 }

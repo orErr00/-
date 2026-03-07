@@ -296,7 +296,8 @@ async function render() {
     } else if (route === '/tags') {
       await renderTags();
     } else if (route === '/format') {
-      await renderFormatPage();
+      window.location.href = '/layout/';
+      return;
     } else {
       app.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔍</div><div class="empty-state-title">页面未找到</div><a href="#/" class="btn btn-primary mt-2">返回主页</a></div>`;
     }
